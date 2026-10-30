@@ -63,12 +63,20 @@ async function checkUpdate() {
         return
       }
       state.update = result
+      // 把清单实际来自哪个域名显示出来：本机只有加速前缀能通，
+      // 出问题时一眼能看出走的是代理还是直连。
+      let source = ''
+      try {
+        source = result.manifestUrl ? ` · 来源 ${new URL(result.manifestUrl).host}` : ''
+      } catch {
+        source = ''
+      }
       if (result.hasUpdate) {
-        setStatus(`有新版本 ${result.latest}（当前 ${result.current}）`, 'ok')
+        setStatus(`有新版本 ${result.latest}（当前 ${result.current}）${source}`, 'ok')
         $('download').hidden = false
         $('open').hidden = false
       } else {
-        setStatus(`已是最新（${result.current}）`, 'ok')
+        setStatus(`已是最新（${result.current}）${source}`, 'ok')
       }
       return
     }

@@ -1,6 +1,6 @@
 {
   "name": "dsh-app",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "一套前端，三种产物：Windows(Electron) + Android(Capacitor) + PWA",
   "main": "electron/main.js",
