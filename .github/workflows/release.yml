@@ -26,7 +26,12 @@ jobs:
           node-version: 24
 
       - name: 安装依赖
-        run: pnpm install --frozen-lockfile
+        shell: pwsh
+        run: |
+          pnpm install --frozen-lockfile *> install.log
+          $code = $LASTEXITCODE
+          Get-Content install.log -Tail 30
+          exit $code
 
       # pnpm 在 CI 上不一定执行 electron 的安装脚本；没有 dist 就没法打包，
       # 这里兜底跑一次它的安装器（runner 访问 GitHub 是内网速度）。
@@ -35,18 +40,25 @@ jobs:
         run: |
           if (!(Test-Path node_modules/electron/dist/electron.exe)) {
             Write-Host "electron dist 缺失，执行安装器"
-            node node_modules/electron/install.js
+            node node_modules/electron/install.js *> electron.log
+            $code = $LASTEXITCODE
+            Get-Content electron.log -Tail 20
+            if ($code -ne 0) { exit $code }
           } else {
             Write-Host "electron dist 已存在"
           }
-          Get-ChildItem node_modules/electron/dist/electron.exe | Select-Object FullName, Length
 
       - name: 生成图标
         run: python scripts/make-icons.py
         continue-on-error: true
 
       - name: 打包 Windows 安装包
-        run: pnpm build:win
+        shell: pwsh
+        run: |
+          pnpm build:win *> build.log
+          $code = $LASTEXITCODE
+          Get-Content build.log -Tail 40
+          exit $code
 
       - name: 生成更新清单
         run: node scripts/make-latest-yml.mjs
@@ -60,19 +72,22 @@ jobs:
             release/*.blockmap
           fail_on_unmatched_files: false
 
-      # 失败时把日志提交回仓库：本机访问不了 GitHub 的日志接口，
+      # 失败时把各步骤日志提交回仓库：本机访问不了 GitHub 的日志接口，
       # 但 raw.githubusercontent.com 经过加速前缀是能读的。
       - name: 失败诊断（提交日志到仓库）
         if: failure()
         shell: pwsh
         run: |
-          $lines = @()
-          $lines += "run: $env:GITHUB_RUN_ID"
-          $lines += "node: $(node -v)"
-          $lines += "pnpm: $(pnpm -v)"
-          if (Test-Path build.log) { $lines += (Get-Content build.log -Tail 120) } else { $lines += "no build.log" }
-          if (Test-Path node_modules/electron/dist) { $lines += "electron dist exists" } else { $lines += "electron dist MISSING" }
-          $lines | Out-File -FilePath ci-failure.log -Encoding utf8
+          $out = @()
+          $out += "run: $env:GITHUB_RUN_ID"
+          $out += "node: $(node -v)  pnpm: $(pnpm -v)"
+          foreach ($f in @('install.log','electron.log','build.log')) {
+            $out += "===== $f ====="
+            if (Test-Path $f) { $out += (Get-Content $f -Tail 60) } else { $out += "(不存在)" }
+          }
+          $out += "===== 磁盘 ====="
+          if (Test-Path release) { $out += (Get-ChildItem release | Select-Object Name,Length | Format-Table | Out-String) }
+          $out | Out-File -FilePath ci-failure.log -Encoding utf8
           git config user.name "ci-bot"
           git config user.email "ci-bot@local"
           git add -f ci-failure.log
