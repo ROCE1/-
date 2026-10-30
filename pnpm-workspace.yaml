@@ -1,4 +1,6 @@
 # pnpm 11 起，构建设置从 package.json 的 "pnpm" 字段搬到了这里。
+# CI 上 pnpm 会因为“被忽略的构建脚本”直接失败，所以把用得到的都显式列出来。
 onlyBuiltDependencies:
   - electron
   - esbuild
+  - electron-winstaller
