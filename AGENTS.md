@@ -87,10 +87,29 @@ core.sshCommand  ssh -i D:/dev/.ssh/id_ed25519_dshapp -o IdentitiesOnly=yes -o U
 ## 更新机制（重要）
 
 - 读取：`https://github.com/<owner>/<repo>/releases/latest/download/latest.yml`
-  **不调用 api.github.com**（本机实测超时），走 `github.com` 的 download 重定向，稳定。
-- 上传：在 GitHub 网页手动 Create release，把 `release/*.exe`、`latest.yml`、`app-release.apk` 一起传上去。
-- 国内兜底：需要时在客户端加“加速前缀”，用 `https://gh-proxy.com/`（实测可用）。
-- 安卓更新（待做）：Capacitor 原生侧用 HTTP 拉 `version.json` → 下载 APK → 触发 `FileProvider` 安装；需要 `REQUEST_INSTALL_PACKAGES` 权限与稳定 keystore。
+  客户端统一走**加速前缀**（`app.config.json` 的 `mirror`，默认 `https://gh-proxy.com/`），
+  前缀失败才回落直连；不调用 api.github.com（本机阻断）。
+- 发布：**推 tag 即发布**（见下节），不需要手工上传。
+
+## CI 发布（已跑通）
+
+```
+改 package.json 的 version → git push + git tag vX.Y.Z + push tag
+  → GitHub Actions（windows-latest）打包
+  → gh release create 自动建 Release 并上传 exe / latest.yml / blockmap
+  → 客户端「检查更新」看到新版本 → 「下载并安装」自动完成升级
+```
+
+排障要点（都踩过）：
+
+- pnpm 11 的构建设置读 `pnpm-workspace.yaml` 的 `allowBuilds`，不读 package.json 的 `pnpm` 字段；
+  未放行 electron 的安装脚本 → CI 上没有 `electron/dist` → 打包失败
+- `artifactName` **不能带空格**：GitHub 会把空格换成点，清单里的文件名就对不上（0.1.2 的坑）
+- `scripts/make-latest-yml.mjs` **不要硬编码安装包名**，按 `*-setup.exe` 去 `release/` 里找（0.1.3 的坑）
+- 本机读不到 Actions 日志（api.github.com 阻断），所以失败时 job 会把 `install/electron/build/manifest/release.log`
+  汇总成 `ci-failure.log` 推到 `ci-logs` 分支，用
+  `https://gh-proxy.com/https://raw.githubusercontent.com/ROCE1/-/ci-logs/ci-failure.log` 读
+- NSIS 默认 solid 压缩在 runner 上曾被杀，现用 `compression: store`（包 ~117 MB，稳定优先）
 
 ## 约定
 
