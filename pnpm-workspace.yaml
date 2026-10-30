@@ -1,6 +1,9 @@
-# pnpm 11 起，构建设置从 package.json 的 "pnpm" 字段搬到了这里。
-# CI 上 pnpm 会因为“被忽略的构建脚本”直接失败，所以把用得到的都显式列出来。
-onlyBuiltDependencies:
-  - electron
-  - esbuild
-  - electron-winstaller
+# pnpm 11 的构建设置（旧写法 package.json 的 "pnpm" 字段已不再读取）。
+# allowBuilds：允许这些包在 install 时执行安装脚本。
+#   - electron：必须允许，否则不会下载运行时，node_modules/electron/dist 不存在，打包必失败
+#   - electron-winstaller：electron-builder 的依赖，脚本无害，跑一下免得 pnpm 报“未批准”
+#   - esbuild：Capacitor 工具链用到
+allowBuilds:
+  electron: true
+  electron-winstaller: true
+  esbuild: true
