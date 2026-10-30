@@ -59,23 +59,36 @@ jobs:
         run: |
           pnpm build:win *> build.log
           $code = $LASTEXITCODE
+          "===== EXITCODE=$code =====" | Out-File -FilePath build.log -Append
           Get-Content build.log -Tail 40
           exit $code
 
       - name: 生成更新清单
-        run: node scripts/make-latest-yml.mjs
+        shell: pwsh
+        run: |
+          node scripts/make-latest-yml.mjs *> manifest.log
+          $code = $LASTEXITCODE
+          Get-Content manifest.log -Tail 20
+          exit $code
 
       - name: 发布（gh CLI 直接创建 Release 并上传）
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $tag = "v$version"
-          Write-Host "发布 $tag"
-          gh release create $tag --title $tag --notes "自动构建（GitHub Actions）" --latest `
-            "release/DSH-App-$version-setup.exe" "release/latest.yml" "release/DSH-App-$version-setup.exe.blockmap" *> release.log
-          $code = $LASTEXITCODE
+          "step started" | Out-File -FilePath release.log -Encoding utf8
+          try {
+            $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+            $tag = "v$version"
+            "version=$version tag=$tag" | Out-File -FilePath release.log -Append
+            "gh=$( (Get-Command gh -ErrorAction SilentlyContinue).Source )" | Out-File -FilePath release.log -Append
+            gh release create $tag --title $tag --notes "自动构建（GitHub Actions）" --latest `
+              "release/DSH-App-$version-setup.exe" "release/latest.yml" "release/DSH-App-$version-setup.exe.blockmap" *>> release.log
+            $code = $LASTEXITCODE
+          } catch {
+            "ERROR: $_" | Out-File -FilePath release.log -Append
+            $code = 1
+          }
           Get-Content release.log -Tail 30
           exit $code
 
@@ -88,9 +101,9 @@ jobs:
           $out = @()
           $out += "run: $env:GITHUB_RUN_ID"
           $out += "node: $(node -v)  pnpm: $(pnpm -v)"
-          foreach ($f in @('install.log','electron.log','build.log','release.log')) {
+          foreach ($f in @('install.log','electron.log','build.log','manifest.log','release.log')) {
             $out += "===== $f ====="
-            if (Test-Path $f) { $out += (Get-Content $f -Tail 60) } else { $out += "(不存在)" }
+            if (Test-Path $f) { $out += (Get-Content $f -Tail 80) } else { $out += "(不存在)" }
           }
           $out += "===== 磁盘 ====="
           if (Test-Path release) { $out += (Get-ChildItem release | Select-Object Name,Length | Format-Table | Out-String) }
