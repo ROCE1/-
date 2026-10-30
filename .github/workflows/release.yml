@@ -29,7 +29,20 @@ jobs:
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
-      - name: 生成图标（脚本已在仓库里，缺图标时兜底）
+      # pnpm 在 CI 上不一定执行 electron 的安装脚本；没有 dist 就没法打包，
+      # 这里兜底跑一次它的安装器（runner 访问 GitHub 是内网速度）。
+      - name: 确保 Electron 运行时存在
+        shell: pwsh
+        run: |
+          if (!(Test-Path node_modules/electron/dist/electron.exe)) {
+            Write-Host "electron dist 缺失，执行安装器"
+            node node_modules/electron/install.js
+          } else {
+            Write-Host "electron dist 已存在"
+          }
+          Get-ChildItem node_modules/electron/dist/electron.exe | Select-Object FullName, Length
+
+      - name: 生成图标
         run: python scripts/make-icons.py
         continue-on-error: true
 
