@@ -1,0 +1,49 @@
+name: release
+
+# 推送 v* 标签就触发：在 GitHub 的 runner 上打包并发布。
+# 这样不需要任何人把 118 MB 的安装包从家里网络传上去。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 生成图标（脚本已在仓库里，缺图标时兜底）
+        run: python scripts/make-icons.py
+        continue-on-error: true
+
+      - name: 打包 Windows 安装包
+        run: pnpm build:win
+
+      - name: 生成更新清单
+        run: node scripts/make-latest-yml.mjs
+
+      - name: 发布（自动创建 Release 并上传资产）
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+            release/latest.yml
+            release/*.blockmap
+          fail_on_unmatched_files: false
