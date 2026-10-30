@@ -92,4 +92,5 @@ jobs:
           git config user.email "ci-bot@local"
           git add -f ci-failure.log
           git commit -m "ci: 记录失败日志" 2>$null
-          git push origin HEAD:main
+          # 推到一个独立分支：main 上可能已经有人推过东西，直接推 main 会 non-fast-forward
+          git push -f origin HEAD:refs/heads/ci-logs
