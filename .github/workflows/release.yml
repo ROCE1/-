@@ -24,7 +24,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+
+      - name: 环境信息
+        run: |
+          node -v
+          pnpm -v
+          Get-ChildItem node_modules -ErrorAction SilentlyContinue | Select-Object -First 3
 
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
@@ -47,7 +52,10 @@ jobs:
         continue-on-error: true
 
       - name: 打包 Windows 安装包
-        run: pnpm build:win
+        shell: pwsh
+        run: |
+          pnpm build:win 2>&1 | Tee-Object -FilePath build.log
+          exit $LASTEXITCODE
 
       - name: 生成更新清单
         run: node scripts/make-latest-yml.mjs
@@ -60,3 +68,14 @@ jobs:
             release/latest.yml
             release/*.blockmap
           fail_on_unmatched_files: false
+
+      # 失败时把关键日志写进 Job Summary，方便用 API 直接读（本机访问不了 GitHub 日志）
+      - name: 失败诊断
+        if: failure()
+        shell: pwsh
+        run: |
+          "## 构建日志（尾部）" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "```" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          if (Test-Path build.log) { Get-Content build.log -Tail 60 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append }
+          "```" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          if (Test-Path release) { Get-ChildItem release | Select-Object Name, Length | Format-Table | Out-String | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append }
