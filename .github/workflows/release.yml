@@ -85,9 +85,13 @@ jobs:
         shell: pwsh
         run: |
           $bytes = [Convert]::FromBase64String("${{ secrets.ANDROID_KEYSTORE_BASE64 }}")
-          [IO.File]::WriteAllBytes("$PWD\android\release.jks", $bytes)
+          $jks = Join-Path $PWD 'android/release.jks'
+          [IO.File]::WriteAllBytes($jks, $bytes)
+          # Gradle 的 file() 会按模块目录解析相对路径，反斜杠路径会被拼坏，
+          # 所以这里统一写成正斜杠的绝对路径。
+          $jksPath = $jks.Replace('\', '/')
           @"
-          storeFile=$PWD/android/release.jks
+          storeFile=$jksPath
           storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
           keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
