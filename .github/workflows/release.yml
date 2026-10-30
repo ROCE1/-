@@ -28,6 +28,8 @@ jobs:
       - name: 安装依赖
         shell: pwsh
         run: |
+          Get-PSDrive C | Select-Object @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}
+          Get-CimInstance Win32_OperatingSystem | Select-Object @{n='FreeMemMB';e={[math]::Round($_.FreePhysicalMemory/1024)}}
           pnpm install --frozen-lockfile *> install.log
           $code = $LASTEXITCODE
           Get-Content install.log -Tail 30
