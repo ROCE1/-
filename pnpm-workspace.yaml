@@ -1,0 +1,4 @@
+# pnpm 11 起，构建设置从 package.json 的 "pnpm" 字段搬到了这里。
+onlyBuiltDependencies:
+  - electron
+  - esbuild

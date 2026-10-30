@@ -1,0 +1,143 @@
+:root {
+  color-scheme: dark;
+  --bg: #0f1115;
+  --card: #171a21;
+  --line: #262b36;
+  --text: #e6e9ef;
+  --muted: #8b93a3;
+  --accent: #4c8dff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: radial-gradient(1200px 600px at 70% -10%, #1b2433 0%, var(--bg) 55%);
+  color: var(--text);
+  font: 15px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  display: flex;
+  justify-content: center;
+  padding: 32px 20px calc(32px + env(safe-area-inset-bottom));
+}
+
+.shell {
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.head h1 {
+  margin: 0 0 4px;
+  font-size: 26px;
+  letter-spacing: 0.5px;
+}
+
+.sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+}
+
+.row:last-of-type {
+  border-bottom: none;
+}
+
+.label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+code {
+  font: 13px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+button {
+  appearance: none;
+  border: 1px solid #2f6ee0;
+  background: linear-gradient(180deg, #4c8dff, #3a74e0);
+  color: white;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 16px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.08);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.ghost {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--text);
+}
+
+.placeholder h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.placeholder p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.foot {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  margin-top: 8px;
+}
+
+.ok {
+  color: #4ade80;
+}
+
+.warn {
+  color: #fbbf24;
+}
+
+.err {
+  color: #f87171;
+}

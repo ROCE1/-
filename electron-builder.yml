@@ -1,0 +1,28 @@
+appId: com.example.dshapp
+productName: DSH App
+copyright: Copyright © 2026
+# 直接用 node_modules 里已解压好的 Electron 运行时，避免打包时再去下载 zip
+# （这台机器访问 GitHub 的 release 资产会超时，实测每次卡在这里）。
+electronDist: node_modules/electron/dist
+directories:
+  # 先落在工作区（这里能写），构建完再复制到 D:\DSH-App-dist 分发
+  output: release
+  buildResources: build
+files:
+  - electron/**/*
+  - www/**/*
+  - app.config.json
+  - package.json
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+  artifactName: ${productName}-${version}-setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: DSH App

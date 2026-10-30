@@ -1,0 +1,25 @@
+{
+  "name": "dsh-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "一套前端，三种产物：Windows(Electron) + Android(Capacitor) + PWA",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win nsis --x64 --publish never",
+    "android:add": "cap add android",
+    "android:sync": "cap sync android",
+    "android:apk": "cd android && gradlew.bat assembleRelease"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0"
+  }
+}

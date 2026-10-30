@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>DSH App</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#0f1115" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="head">
+        <h1 id="title">DSH App</h1>
+        <p class="sub" id="mode">正在检测运行环境…</p>
+      </header>
+
+      <section class="card">
+        <div class="row">
+          <span class="label">当前版本</span>
+          <code id="version">—</code>
+        </div>
+        <div class="row">
+          <span class="label">更新状态</span>
+          <span id="update-status">尚未检查</span>
+        </div>
+        <div class="actions">
+          <button id="check">检查更新</button>
+          <button id="open" hidden>打开发布页</button>
+        </div>
+      </section>
+
+      <section class="card placeholder">
+        <h2>功能位</h2>
+        <p>这里以后放你的应用本身。现在它只用来验证三件事：能打包成 exe、能装进手机、能检查更新。</p>
+      </section>
+
+      <footer class="foot">
+        <span>桌面：Electron · 安卓：Capacitor · 网页：PWA</span>
+      </footer>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

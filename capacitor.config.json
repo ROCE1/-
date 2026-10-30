@@ -1,0 +1,12 @@
+{
+  "appId": "com.example.dshapp",
+  "appName": "DSH App",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

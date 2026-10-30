@@ -1,0 +1,19 @@
+node_modules/
+
+# 构建产物（桌面安装包 / 便携目录）
+release/
+
+# 打包器离线缓存的工具（几 MB，不进仓库）
+.cache-tools/
+.eb-cache/
+build/tmp/
+
+# 安卓：保留工程本身，只忽略构建输出与本机路径
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+
+.gradle/
+*.log
+.DS_Store
