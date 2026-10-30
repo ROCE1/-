@@ -24,15 +24,20 @@
           <span class="label">更新状态</span>
           <span id="update-status">尚未检查</span>
         </div>
+        <div class="progress" id="progress-wrap" hidden>
+          <div class="bar"><div class="fill" id="progress-fill"></div></div>
+          <span class="label" id="progress-text">0%</span>
+        </div>
         <div class="actions">
           <button id="check">检查更新</button>
-          <button id="open" hidden>打开发布页</button>
+          <button id="download" hidden>下载并安装</button>
+          <button id="open" class="ghost" hidden>打开发布页</button>
         </div>
       </section>
 
       <section class="card placeholder">
         <h2>功能位</h2>
-        <p>这里以后放你的应用本身。现在它只用来验证三件事：能打包成 exe、能装进手机、能检查更新。</p>
+        <p>这里以后放你的应用本身。现在它用来验证三件事：能打包成 exe、能装进手机、能检测并安装更新。</p>
       </section>
 
       <footer class="foot">

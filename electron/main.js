@@ -1,10 +1,11 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
-const { checkForUpdate } = require('./update')
+const crypto = require('node:crypto')
+const { spawn } = require('node:child_process')
+const { checkForUpdate, downloadInstaller } = require('./update')
 
-// —— 日志先行：这台机器上 Electron 起窗口时出现过“空白后自动消失”，
-//    没有日志就只能猜。写到 userData 目录，出问题能直接读。
+// —— 日志先行：没有日志时“窗口空白后消失”只能靠猜。
 let logFile = null
 function log(...parts) {
   const line = `[${new Date().toISOString()}] ${parts
@@ -63,6 +64,17 @@ function createWindow() {
   return win
 }
 
+/** 流式计算文件 sha512（121 MB 不适合整个读进内存）。 */
+function fileSha512(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha512')
+    fs.createReadStream(filePath)
+      .on('data', (chunk) => hash.update(chunk))
+      .on('error', reject)
+      .on('end', () => resolve(hash.digest('base64')))
+  })
+}
+
 app.whenReady().then(() => {
   log('app ready', `electron=${process.versions.electron}`, `node=${process.versions.node}`, `userData=${app.getPath('userData')}`)
 
@@ -71,7 +83,38 @@ app.whenReady().then(() => {
     packaged: app.isPackaged,
     platform: process.platform,
   }))
+
   ipcMain.handle('update:check', () => checkForUpdate(app.getVersion()))
+
+  ipcMain.handle('update:download', async (event, payload) => {
+    const fileName = payload.file || 'update-setup.exe'
+    const dir = path.join(app.getPath('temp'), 'dsh-app-update')
+    log('download start', payload.url, fileName)
+
+    const target = await downloadInstaller(payload.url, dir, fileName, (progress) => {
+      if (!event.sender.isDestroyed()) event.sender.send('update:progress', progress)
+    })
+
+    if (payload.sha512) {
+      const actual = await fileSha512(target)
+      if (actual !== payload.sha512) {
+        fs.rmSync(target, { force: true })
+        throw new Error('sha512 校验失败，安装包可能下载不完整')
+      }
+    }
+    log('download done', target)
+    return { ok: true, path: target }
+  })
+
+  ipcMain.handle('update:install', (_event, filePath) => {
+    log('install', filePath)
+    // NSIS 支持 /S 静默安装；detached 让安装器在应用退出后继续跑。
+    const child = spawn(filePath, ['/S'], { detached: true, stdio: 'ignore' })
+    child.unref()
+    setTimeout(() => app.quit(), 800)
+    return { ok: true }
+  })
+
   ipcMain.handle('shell:open', (_event, url) => {
     if (typeof url === 'string' && /^https:\/\//.test(url)) return shell.openExternal(url)
     return false

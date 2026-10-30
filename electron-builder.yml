@@ -19,7 +19,9 @@ win:
       arch:
         - x64
   icon: build/icon.ico
-  artifactName: ${productName}-${version}-setup.${ext}
+  # 不能带空格：GitHub 上传资产时会把空格替换成点，
+  # 而 latest.yml 里记录的是原始文件名，两边就对不上了（0.1.2 踩过）。
+  artifactName: DSH-App-${version}-setup.${ext}
 nsis:
   oneClick: false
   perMachine: false

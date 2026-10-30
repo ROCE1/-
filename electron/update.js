@@ -23,25 +23,40 @@ function compareVersions(a, b) {
 
 /**
  * 这台机器的网络对 github.com 与 raw.githubusercontent.com 都是阻断的，
- * 只有加速前缀（gh-proxy）能通；而别的网络可能正好相反。
- * 所以按“前缀优先 → 直连兜底”的顺序逐个试，谁先成功用谁。
+ * 只有加速前缀（gh-proxy）能通；别的网络可能正好相反，所以前缀优先、直连兜底。
+ *
+ * 清单只认 Release 里的 latest.yml（由 CI 打包时生成，sha512 与安装包严格对应）。
+ * 曾经试过把清单放仓库根目录，但那样得到的是“手写清单 + 另一份构建产物”，
+ * sha512 一定对不上，所以放弃这条路。
  */
-function candidateUrls({ owner, repo, mirror }) {
-  const raw = `https://raw.githubusercontent.com/${owner}/${repo}/main/latest.yml`
-  const release = `https://github.com/${owner}/${repo}/releases/latest/download/latest.yml`
+function baseUrls({ owner, repo, mirror }) {
+  const release = `https://github.com/${owner}/${repo}/releases/latest/download`
   const list = []
   if (mirror) {
     const prefix = mirror.endsWith('/') ? mirror : `${mirror}/`
-    list.push(`${prefix}${raw}`, `${prefix}${release}`)
+    list.push({ manifest: `${prefix}${release}/latest.yml`, download: `${prefix}${release}` })
   }
-  list.push(raw, release)
-  return [...new Set(list)]
+  list.push({ manifest: `${release}/latest.yml`, download: release })
+  return list
 }
 
 async function fetchText(url, timeoutMs) {
   const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(timeoutMs) })
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
   return response.text()
+}
+
+/** 从 electron-builder 生成的 latest.yml 里取版本、安装包文件名、sha512、大小。 */
+function parseManifest(text) {
+  const version = /^version:\s*(.+)$/m.exec(text)?.[1]?.trim()
+  if (!version) throw new Error('清单里没有 version')
+
+  const fileBlock = /files:\s*\n((?:\s+-\s[\s\S]*?)(?=\n\S|$))/.exec(text)?.[1] ?? ''
+  const url = /^\s+-\s*url:\s*(.+)$/m.exec(fileBlock)?.[1]?.trim() ?? null
+  const sha512 = /^\s+sha512:\s*(.+)$/m.exec(fileBlock)?.[1]?.trim() ?? null
+  const size = Number(/^\s+size:\s*(\d+)$/m.exec(fileBlock)?.[1] ?? 0)
+
+  return { version, file: url, sha512, size }
 }
 
 async function checkForUpdate(currentVersion) {
@@ -51,37 +66,62 @@ async function checkForUpdate(currentVersion) {
     return { ok: false, reason: 'not-configured', message: '还没配置 GitHub 仓库（app.config.json）' }
   }
 
-  const urls = candidateUrls({ owner, repo, mirror: config.mirror })
+  const bases = baseUrls({ owner, repo, mirror: config.mirror })
   const failures = []
 
-  for (const url of urls) {
+  for (const base of bases) {
     try {
-      const text = await fetchText(url, 8000)
-      const matched = /^version:\s*(.+)$/m.exec(text)
-      if (!matched) {
-        failures.push(`${url} → 清单里没有 version`)
-        continue
-      }
-      const latest = matched[1].trim()
+      const parsed = parseManifest(await fetchText(base.manifest, 8000))
       return {
         ok: true,
         current: currentVersion,
-        latest,
-        hasUpdate: compareVersions(latest, currentVersion) > 0,
-        source: url,
+        latest: parsed.version,
+        hasUpdate: compareVersions(parsed.version, currentVersion) > 0,
+        file: parsed.file,
+        sha512: parsed.sha512,
+        size: parsed.size,
+        downloadUrl: base.download && parsed.file ? `${base.download}/${encodeURIComponent(parsed.file)}` : null,
+        manifestUrl: base.manifest,
         page: `https://github.com/${owner}/${repo}/releases`,
       }
     } catch (error) {
-      failures.push(`${url} → ${error.message}`)
+      failures.push(`${base.manifest} → ${error.message}`)
     }
   }
 
   return {
     ok: false,
     reason: 'unreachable',
-    message: `所有更新地址都连不上（试了 ${urls.length} 个）`,
+    message: `所有更新地址都连不上（试了 ${bases.length} 个）`,
     detail: failures.join('\n'),
   }
 }
 
-module.exports = { checkForUpdate, compareVersions }
+/**
+ * 流式下载安装包到临时目录。onProgress 收到 { received, total }。
+ * 只负责下载，不校验、不执行——校验和安装由调用方决定。
+ */
+async function downloadInstaller(url, targetDir, fileName, onProgress) {
+  const response = await fetch(url, { redirect: 'follow' })
+  if (!response.ok) throw new Error(`下载失败：HTTP ${response.status}`)
+
+  const total = Number(response.headers.get('content-length') ?? 0)
+  const target = path.join(targetDir, fileName)
+  await fs.promises.mkdir(targetDir, { recursive: true })
+
+  const handle = await fs.promises.open(target, 'w')
+  try {
+    let received = 0
+    for await (const chunk of response.body) {
+      await handle.write(chunk)
+      received += chunk.length
+      if (onProgress) onProgress({ received, total })
+    }
+  } finally {
+    await handle.close()
+  }
+
+  return target
+}
+
+module.exports = { checkForUpdate, downloadInstaller, compareVersions, parseManifest }
