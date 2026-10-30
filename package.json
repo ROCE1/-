@@ -6,10 +6,10 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "build:win": "electron-builder --win nsis --x64 --publish never",
+    "build:win": "node scripts/write-web-version.mjs && electron-builder --win nsis --x64 --publish never",
     "android:add": "cap add android",
-    "android:sync": "cap sync android",
-    "android:apk": "cd android && gradlew.bat assembleRelease"
+    "android:sync": "node scripts/write-web-version.mjs && cap sync android",
+    "android:apk": "node scripts/write-web-version.mjs && cd android && gradlew.bat assembleRelease"
   },
   "author": "",
   "license": "MIT",

@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+env:
+  # 没配安卓签名密钥时跳过 APK 步骤，只发桌面安装包
+  HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -28,8 +32,6 @@ jobs:
       - name: 安装依赖
         shell: pwsh
         run: |
-          Get-PSDrive C | Select-Object @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}
-          Get-CimInstance Win32_OperatingSystem | Select-Object @{n='FreeMemMB';e={[math]::Round($_.FreePhysicalMemory/1024)}}
           pnpm install --frozen-lockfile *> install.log
           $code = $LASTEXITCODE
           Get-Content install.log -Tail 30
@@ -71,6 +73,41 @@ jobs:
           Get-Content manifest.log -Tail 20
           exit $code
 
+      # ---------- 安卓（有签名密钥时才跑） ----------
+      - uses: actions/setup-java@v4
+        if: env.HAS_KEYSTORE == 'true'
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: 写入安卓签名密钥
+        if: env.HAS_KEYSTORE == 'true'
+        shell: pwsh
+        run: |
+          $bytes = [Convert]::FromBase64String("${{ secrets.ANDROID_KEYSTORE_BASE64 }}")
+          [IO.File]::WriteAllBytes("$PWD\android\release.jks", $bytes)
+          @"
+          storeFile=$PWD/android/release.jks
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          "@ | Out-File -FilePath android\keystore.properties -Encoding utf8
+
+      - name: 打包安卓 APK
+        if: env.HAS_KEYSTORE == 'true'
+        shell: pwsh
+        run: |
+          node scripts/write-web-version.mjs
+          npx cap sync android *> android-sync.log
+          cd android
+          .\gradlew.bat assembleRelease --no-daemon *> ..\android.log
+          $code = $LASTEXITCODE
+          Get-Content ..\android.log -Tail 30
+          if ($code -ne 0) { exit $code }
+          $version = (Get-Content ..\package.json -Raw | ConvertFrom-Json).version
+          Copy-Item app/build/outputs/apk/release/app-release.apk "..\release\DSH-App-$version-release.apk"
+
+      # ---------- 发布 ----------
       - name: 发布（gh CLI 直接创建 Release 并上传）
         shell: pwsh
         env:
@@ -80,10 +117,12 @@ jobs:
           try {
             $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
             $tag = "v$version"
-            "version=$version tag=$tag" | Out-File -FilePath release.log -Append
-            "gh=$( (Get-Command gh -ErrorAction SilentlyContinue).Source )" | Out-File -FilePath release.log -Append
-            gh release create $tag --title $tag --notes "自动构建（GitHub Actions）" --latest `
-              "release/DSH-App-$version-setup.exe" "release/latest.yml" "release/DSH-App-$version-setup.exe.blockmap" *>> release.log
+            $files = @()
+            $files += (Get-ChildItem release/*.exe | ForEach-Object { $_.FullName })
+            $files += (Resolve-Path release/latest.yml).Path
+            $files += (Get-ChildItem release/*.apk -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+            "version=$version tag=$tag files=$($files -join ', ')" | Out-File -FilePath release.log -Append
+            gh release create $tag --title $tag --notes "自动构建（GitHub Actions）" --latest @files *>> release.log
             $code = $LASTEXITCODE
           } catch {
             "ERROR: $_" | Out-File -FilePath release.log -Append
@@ -92,7 +131,7 @@ jobs:
           Get-Content release.log -Tail 30
           exit $code
 
-      # 失败时把各步骤日志提交回仓库：本机访问不了 GitHub 的日志接口，
+      # 失败时把各步骤日志提交回 ci-logs 分支：本机访问不了 GitHub 的日志接口，
       # 但 raw.githubusercontent.com 经过加速前缀是能读的。
       - name: 失败诊断（提交日志到仓库）
         if: failure()
@@ -101,7 +140,7 @@ jobs:
           $out = @()
           $out += "run: $env:GITHUB_RUN_ID"
           $out += "node: $(node -v)  pnpm: $(pnpm -v)"
-          foreach ($f in @('install.log','electron.log','build.log','manifest.log','release.log')) {
+          foreach ($f in @('install.log','electron.log','build.log','manifest.log','android.log','android-sync.log','release.log')) {
             $out += "===== $f ====="
             if (Test-Path $f) { $out += (Get-Content $f -Tail 80) } else { $out += "(不存在)" }
           }
@@ -112,5 +151,4 @@ jobs:
           git config user.email "ci-bot@local"
           git add -f ci-failure.log
           git commit -m "ci: 记录失败日志" 2>$null
-          # 推到一个独立分支：main 上可能已经有人推过东西，直接推 main 会 non-fast-forward
           git push -f origin HEAD:refs/heads/ci-logs
