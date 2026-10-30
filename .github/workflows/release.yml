@@ -46,10 +46,7 @@ jobs:
         continue-on-error: true
 
       - name: 打包 Windows 安装包
-        shell: pwsh
-        run: |
-          pnpm build:win 2>&1 | Tee-Object -FilePath build.log
-          exit $LASTEXITCODE
+        run: pnpm build:win
 
       - name: 生成更新清单
         run: node scripts/make-latest-yml.mjs
