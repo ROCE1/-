@@ -25,12 +25,6 @@ jobs:
         with:
           node-version: 24
 
-      - name: 环境信息
-        run: |
-          node -v
-          pnpm -v
-          Get-ChildItem node_modules -ErrorAction SilentlyContinue | Select-Object -First 3
-
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
@@ -69,13 +63,21 @@ jobs:
             release/*.blockmap
           fail_on_unmatched_files: false
 
-      # 失败时把关键日志写进 Job Summary，方便用 API 直接读（本机访问不了 GitHub 日志）
-      - name: 失败诊断
+      # 失败时把日志提交回仓库：本机访问不了 GitHub 的日志接口，
+      # 但 raw.githubusercontent.com 经过加速前缀是能读的。
+      - name: 失败诊断（提交日志到仓库）
         if: failure()
         shell: pwsh
         run: |
-          "## 构建日志（尾部）" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "```" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          if (Test-Path build.log) { Get-Content build.log -Tail 60 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append }
-          "```" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          if (Test-Path release) { Get-ChildItem release | Select-Object Name, Length | Format-Table | Out-String | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append }
+          $lines = @()
+          $lines += "run: $env:GITHUB_RUN_ID"
+          $lines += "node: $(node -v)"
+          $lines += "pnpm: $(pnpm -v)"
+          if (Test-Path build.log) { $lines += (Get-Content build.log -Tail 120) } else { $lines += "no build.log" }
+          if (Test-Path node_modules/electron/dist) { $lines += "electron dist exists" } else { $lines += "electron dist MISSING" }
+          $lines | Out-File -FilePath ci-failure.log -Encoding utf8
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@local"
+          git add -f ci-failure.log
+          git commit -m "ci: 记录失败日志" 2>$null
+          git push origin HEAD:main
