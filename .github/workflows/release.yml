@@ -65,14 +65,19 @@ jobs:
       - name: 生成更新清单
         run: node scripts/make-latest-yml.mjs
 
-      - name: 发布（自动创建 Release 并上传资产）
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            release/*.exe
-            release/latest.yml
-            release/*.blockmap
-          fail_on_unmatched_files: false
+      - name: 发布（gh CLI 直接创建 Release 并上传）
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tag = "v$version"
+          Write-Host "发布 $tag"
+          gh release create $tag --title $tag --notes "自动构建（GitHub Actions）" --latest `
+            "release/DSH-App-$version-setup.exe" "release/latest.yml" "release/DSH-App-$version-setup.exe.blockmap" *> release.log
+          $code = $LASTEXITCODE
+          Get-Content release.log -Tail 30
+          exit $code
 
       # 失败时把各步骤日志提交回仓库：本机访问不了 GitHub 的日志接口，
       # 但 raw.githubusercontent.com 经过加速前缀是能读的。
@@ -83,7 +88,7 @@ jobs:
           $out = @()
           $out += "run: $env:GITHUB_RUN_ID"
           $out += "node: $(node -v)  pnpm: $(pnpm -v)"
-          foreach ($f in @('install.log','electron.log','build.log')) {
+          foreach ($f in @('install.log','electron.log','build.log','release.log')) {
             $out += "===== $f ====="
             if (Test-Path $f) { $out += (Get-Content $f -Tail 60) } else { $out += "(不存在)" }
           }
