@@ -117,3 +117,18 @@ core.sshCommand  ssh -i D:/dev/.ssh/id_ed25519_dshapp -o IdentitiesOnly=yes -o U
 - 每次发版：改版本 → 构建 → 更新 `CHANGELOG.md` → 传 Release。
 - 前端不做复杂构建（没有 Vite/webpack）；真需要框架时再引入，并同步改 `webDir`。
 - `app.config.json` 里的 owner/repo 为空时，更新检查会明确返回“未配置”，不会假装成功。
+
+## 安卓签名与更新（已跑通）
+
+- **keystore**：`D:\dev\keystore\dsh-app.jks`，密码在同目录 `keystore.properties`（`android/keystore.properties` 被 gitignore，绝不入库）。
+  **这份文件+密码丢了就永远无法覆盖升级**，务必另存一份。
+- **GitHub Secrets**（已配置）：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。
+  没配这几个 secret 时 CI 只发桌面包，APK 步骤自动跳过（`HAS_KEYSTORE`）。
+- **CI 里的坑**：`keystore.properties` 的 `storeFile` 必须是**正斜杠绝对路径**。
+  写 `$PWD/android/release.jks`（反斜杠）会被 Gradle `file()` 按模块目录再拼一次，变成 `D:a--\android\release.jks` 然后报找不到。
+- **客户端更新**：`www/app.js` 用 `CapacitorHttp`（原生请求，绕开 CORS）拉 `latest.yml`，拼出
+  `.../releases/latest/download/DSH-App-<版本>-release.apk`，再 `window.open` 交给系统浏览器。
+  Android 不允许应用静默安装 APK，用户要点一次“安装”，并授权“允许安装未知应用”。
+- **版本显示**：安卓/网页端没有主进程，版本号由 `scripts/write-web-version.mjs` 写进 `www/app-version.json`；
+  `build:win` / `android:sync` / `android:apk` 都会先跑它。
+- 换仓库地址时，要同时改 `app.config.json`（桌面端读）和 `www/app.js` 顶部的 `SOURCE`（移动端读）。
