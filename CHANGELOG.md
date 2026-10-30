@@ -1,5 +1,13 @@
 # 更新记录
 
+## 0.1.1 — 2026-10-30
+
+- 更新检查支持**加速前缀**（`app.config.json` 的 `mirror`，默认 `https://gh-proxy.com/`）：
+  本机网络对 `github.com` 与 `raw.githubusercontent.com` 均阻断，只有前缀可达
+- 更新清单改从**仓库根目录** `latest.yml` 读取，不再依赖 Release 附件：
+  发版只需改一个文件并 push，不必重复上传 118 MB 安装包
+- 逐个候选地址回退（前缀 raw → 前缀 release → 直连 raw → 直连 release），任一成功即用
+
 ## 0.1.0 — 2026-10-30
 
 首个可运行骨架，验证三端产物与更新链路：

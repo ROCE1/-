@@ -71,6 +71,19 @@ cd android && cmd //c "gradlew.bat assembleDebug --no-daemon"
 
 产物：`DSH App-<版本>-setup.exe`（118 MB）、`latest.yml`、`DSH-App-<版本>-debug.apk`（4 MB）。
 
+## 推送代码（注意网络）
+
+这台机器 **`github.com:443` 被阻断**，HTTPS 推送必然超时；但 **`ssh.github.com:443` 是通的**。所以仓库走 SSH：
+
+```
+origin  ssh://git@ssh.github.com:443/ROCE1/-.git
+core.sshCommand  ssh -i D:/dev/.ssh/id_ed25519_dshapp -o IdentitiesOnly=yes -o UserKnownHostsFile=D:/dev/.ssh/known_hosts -o StrictHostKeyChecking=accept-new
+```
+
+- 密钥在 `D:\dev\.ssh\`，**不放 `~/.ssh`**：用户目录是中文（杜方舟），OpenSSH 处理该路径会编码错乱
+- 公钥已加到 GitHub 账号（`dsh-app@windows`），推送无需密码
+- 本仓库 git 身份是 `dsh-app <dsh-app@local>`（全局没设）
+
 ## 更新机制（重要）
 
 - 读取：`https://github.com/<owner>/<repo>/releases/latest/download/latest.yml`

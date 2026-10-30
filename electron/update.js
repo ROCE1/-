@@ -22,39 +22,65 @@ function compareVersions(a, b) {
 }
 
 /**
- * 走 `releases/latest/download/` 这条不需要 GitHub API 的路径：
- * 实测 api.github.com 在本机时通时不通，而 github.com 稳定。
+ * 这台机器的网络对 github.com 与 raw.githubusercontent.com 都是阻断的，
+ * 只有加速前缀（gh-proxy）能通；而别的网络可能正好相反。
+ * 所以按“前缀优先 → 直连兜底”的顺序逐个试，谁先成功用谁。
  */
+function candidateUrls({ owner, repo, mirror }) {
+  const raw = `https://raw.githubusercontent.com/${owner}/${repo}/main/latest.yml`
+  const release = `https://github.com/${owner}/${repo}/releases/latest/download/latest.yml`
+  const list = []
+  if (mirror) {
+    const prefix = mirror.endsWith('/') ? mirror : `${mirror}/`
+    list.push(`${prefix}${raw}`, `${prefix}${release}`)
+  }
+  list.push(raw, release)
+  return [...new Set(list)]
+}
+
+async function fetchText(url, timeoutMs) {
+  const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(timeoutMs) })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  return response.text()
+}
+
 async function checkForUpdate(currentVersion) {
-  const { owner, repo } = readConfig()
+  const config = readConfig()
+  const { owner, repo } = config
   if (!owner || !repo) {
     return { ok: false, reason: 'not-configured', message: '还没配置 GitHub 仓库（app.config.json）' }
   }
 
-  const base = `https://github.com/${owner}/${repo}/releases/latest/download`
-  let response
-  try {
-    response = await fetch(`${base}/latest.yml`, { redirect: 'follow' })
-  } catch (error) {
-    return { ok: false, reason: 'network', message: `网络错误：${error.message}` }
-  }
-  if (!response.ok) {
-    return { ok: false, reason: `http-${response.status}`, message: `更新清单拉取失败（HTTP ${response.status}）` }
+  const urls = candidateUrls({ owner, repo, mirror: config.mirror })
+  const failures = []
+
+  for (const url of urls) {
+    try {
+      const text = await fetchText(url, 8000)
+      const matched = /^version:\s*(.+)$/m.exec(text)
+      if (!matched) {
+        failures.push(`${url} → 清单里没有 version`)
+        continue
+      }
+      const latest = matched[1].trim()
+      return {
+        ok: true,
+        current: currentVersion,
+        latest,
+        hasUpdate: compareVersions(latest, currentVersion) > 0,
+        source: url,
+        page: `https://github.com/${owner}/${repo}/releases`,
+      }
+    } catch (error) {
+      failures.push(`${url} → ${error.message}`)
+    }
   }
 
-  const text = await response.text()
-  const matched = /^version:\s*(.+)$/m.exec(text)
-  if (!matched) {
-    return { ok: false, reason: 'bad-manifest', message: 'latest.yml 里没有 version 字段' }
-  }
-
-  const latest = matched[1].trim()
   return {
-    ok: true,
-    current: currentVersion,
-    latest,
-    hasUpdate: compareVersions(latest, currentVersion) > 0,
-    page: `https://github.com/${owner}/${repo}/releases/latest`,
+    ok: false,
+    reason: 'unreachable',
+    message: `所有更新地址都连不上（试了 ${urls.length} 个）`,
+    detail: failures.join('\n'),
   }
 }
 
