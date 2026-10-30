@@ -1,5 +1,0 @@
-run: 41028748919
-node: v24.22.1
-pnpm: 11.28.9
-no build.log
-electron dist exists
