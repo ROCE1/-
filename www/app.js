@@ -1,5 +1,7 @@
 import { dateKey, projectDay, countdown, fitnessSummary } from './model.js'
 import * as store from './store.js'
+import * as native from './native.js'
+import { apply as applyTheme, current as currentTheme, list as listThemes } from './themes.js'
 
 const SOURCE = { owner: 'ROCE1', repo: '-', mirror: 'https://gh-proxy.com/' }
 
@@ -34,6 +36,72 @@ async function reload() {
   state.settings = await store.loadSettings()
 }
 
+/* ---------------- 原生通知与闹钟 ---------------- */
+
+const LEAD_MINUTES = 15
+
+function panelLines(groups) {
+  const lines = []
+  for (const type of ['urgent', 'main', 'side']) {
+    for (const entry of groups[type]) {
+      if (entry.done) continue
+      const info = entry.task.deadline
+        ? countdown(entry.task.deadline, new Date(), state.settings?.countdownThresholds)
+        : null
+      lines.push(`${TYPE_LABEL[type]} ${entry.task.title}${info ? ` · ${info.label}` : ''}`)
+      if (lines.length >= 3) return lines
+    }
+  }
+  return lines
+}
+
+/**
+ * 把“今天该显示什么、该在什么时间提醒”同步给原生层。
+ * 每次任务/状态变化都重排一次：先清空旧闹钟再注册，避免删掉的任务还在响。
+ */
+async function refreshNotifications() {
+  if (!native.isNative()) return
+  const groups = projectDay(state.tasks, state.done, state.date)
+  const busy = Boolean(state.settings?.busy)
+  const lines = panelLines(groups)
+
+  await native.syncState({
+    title: busy ? '繁忙中 · 今日任务' : '空闲 · 今日任务',
+    text: lines.length ? lines.join('\n') : '今天还没有任务',
+    busy,
+  })
+
+  await native.cancelAll()
+  const now = Date.now()
+  for (const type of ['urgent', 'main', 'side']) {
+    for (const entry of groups[type]) {
+      if (entry.done || !entry.task.deadline) continue
+      const due = new Date(entry.task.deadline).getTime()
+      if (Number.isNaN(due)) continue
+      const lead = due - LEAD_MINUTES * 60000
+      const strong = Boolean(entry.task.strong)
+      if (lead > now) {
+        await native.schedule({
+          id: `${entry.task.id}:lead`,
+          at: lead,
+          title: entry.task.title,
+          body: `还有 ${LEAD_MINUTES} 分钟到期`,
+          strong,
+        })
+      }
+      if (due > now && strong) {
+        await native.schedule({
+          id: `${entry.task.id}:due`,
+          at: due,
+          title: entry.task.title,
+          body: '已到截止时间',
+          strong: true,
+        })
+      }
+    }
+  }
+}
+
 /* ---------------- 今日 ---------------- */
 
 function chipFor(task) {
@@ -56,6 +124,7 @@ function taskRow(entry) {
     await store.setDone(task.id, state.date, !done)
     await reload()
     render()
+    await refreshNotifications()
   })
 
   const body = el('div', 'task-body')
@@ -265,6 +334,64 @@ function renderSettings() {
 
   view.appendChild(card)
 
+  // 主题（皮肤）选择：皮肤注册表在 www/themes.js，运行时可用 window.LYTheme 扩展
+  const themeCard = el('section', 'card')
+  themeCard.appendChild(el('div', 'field-label', '主题'))
+  const themeList = el('div', 'theme-list')
+  const activeTheme = currentTheme().id
+  for (const theme of listThemes()) {
+    const option = el('button', `theme-option${theme.id === activeTheme ? ' active' : ''}`, theme.name)
+    option.type = 'button'
+    option.addEventListener('click', () => {
+      applyTheme(theme.id)
+      for (const node of themeList.children) node.classList.toggle('active', node === option)
+    })
+    themeList.appendChild(option)
+  }
+  themeCard.appendChild(themeList)
+  view.appendChild(themeCard)
+
+  // 通知与权限（仅安卓 App 显示）
+  if (native.isNative()) {
+    const notifyCard = el('section', 'card')
+    notifyCard.appendChild(el('div', 'field-label', '通知与提醒'))
+    const statusLine = el('div', 'muted', '点「检查权限」查看当前状态')
+    notifyCard.appendChild(statusLine)
+
+    const row = el('div', 'actions')
+    const checkBtn = el('button', 'ghost', '检查权限')
+    checkBtn.type = 'button'
+    checkBtn.addEventListener('click', async () => {
+      const result = await native.status()
+      if (!result) {
+        statusLine.textContent = '读不到权限状态'
+        return
+      }
+      statusLine.textContent = `通知 ${result.notifications ? '✓' : '✗'} · 精确闹钟 ${
+        result.exactAlarm ? '✓' : '✗'
+      } · 电池优化 ${result.batteryOptimized ? '未关闭' : '已关闭'}`
+    })
+
+    const requestBtn = el('button', 'primary', '申请权限')
+    requestBtn.type = 'button'
+    requestBtn.addEventListener('click', async () => {
+      await native.requestPermissions()
+      statusLine.textContent = '已发起申请，请按系统提示操作'
+    })
+
+    row.append(checkBtn, requestBtn)
+    notifyCard.appendChild(row)
+
+    const batteryBtn = el('button', 'ghost', '电池优化设置（保活）')
+    batteryBtn.type = 'button'
+    batteryBtn.addEventListener('click', () => native.openBatterySettings())
+    notifyCard.appendChild(batteryBtn)
+    notifyCard.appendChild(
+      el('div', 'muted', '荣耀/华为还需在「应用启动管理」里允许自启动，否则提醒可能被系统延迟。'),
+    )
+    view.appendChild(notifyCard)
+  }
+
   const updateCard = el('section', 'card')
   updateCard.appendChild(el('div', 'field-label', `版本 ${state.version}`))
   const statusLine = el('div', 'muted', '尚未检查')
@@ -327,6 +454,7 @@ async function toggleBusy() {
     await store.put('sessions', { ...open, end: new Date().toISOString() })
   }
   render()
+  await refreshNotifications()
 }
 
 async function detectVersion() {
@@ -346,9 +474,11 @@ async function detectVersion() {
 }
 
 async function boot() {
+  applyTheme(currentTheme().id, { persist: false })
   await detectVersion()
   await reload()
   render()
+  await refreshNotifications()
 
   $$('.tab').forEach((tab) => {
     tab.addEventListener('click', () => {
@@ -375,6 +505,7 @@ async function boot() {
     $('#task-dialog').close()
     await reload()
     render()
+    await refreshNotifications()
   })
 
   setInterval(() => {

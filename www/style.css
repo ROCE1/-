@@ -1,11 +1,19 @@
 :root {
   color-scheme: dark;
   --bg: #0f1115;
+  --panel: rgba(15, 17, 21, 0.94);
   --card: #171a21;
   --line: #262b36;
   --text: #e6e9ef;
   --muted: #8b93a3;
   --accent: #4c8dff;
+  --accent-2: #3a74e0;
+  --on-accent: #ffffff;
+  --input-bg: #101319;
+  --chip-ok: #4ade80;
+  --chip-warn: #fbbf24;
+  --chip-hot: #fb923c;
+  --chip-danger: #f87171;
 }
 
 * {
@@ -507,4 +515,108 @@ body {
   color: #f87171;
   padding: 20px;
   white-space: pre-wrap;
+}
+
+/* ===================== 主题化（皮肤接口） =====================
+ * 颜色一律走 CSS 变量。新增皮肤只需在 www/themes.js 里加一个对象，
+ * 或运行时调用 window.LYTheme.register(...)；这里不需要改。
+ */
+body {
+  background: var(--bg);
+}
+
+.topbar,
+.tabbar {
+  background: var(--panel);
+}
+
+.status-pill {
+  background: var(--card);
+  color: var(--muted);
+}
+
+.status-pill.busy {
+  background: linear-gradient(180deg, var(--accent), var(--accent-2));
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.check {
+  border-color: var(--line);
+}
+
+.task.done .check {
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+}
+
+.sheet {
+  background: var(--card);
+}
+
+.field input[type='text'],
+.field input[type='date'],
+.field input[type='time'],
+.field input[type='number'],
+.field input[type='datetime-local'],
+.field select,
+.field textarea {
+  background: var(--input-bg);
+}
+
+.fab {
+  background: linear-gradient(180deg, var(--accent), var(--accent-2));
+}
+
+button.primary {
+  background: linear-gradient(180deg, var(--accent), var(--accent-2));
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.chip-green {
+  color: var(--chip-ok);
+}
+
+.chip-yellow {
+  color: var(--chip-warn);
+}
+
+.chip-orange {
+  color: var(--chip-hot);
+}
+
+.chip-red {
+  color: var(--chip-danger);
+}
+
+.badge.strong {
+  color: var(--chip-warn);
+}
+
+.group-urgent .group-title {
+  color: var(--chip-danger);
+}
+
+/* 主题选择器 */
+.theme-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.theme-option {
+  appearance: none;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+}
+
+.theme-option.active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
