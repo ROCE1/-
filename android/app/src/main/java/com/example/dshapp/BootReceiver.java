@@ -24,8 +24,12 @@ public class BootReceiver extends BroadcastReceiver {
             Alarms.schedule(context, record);
         }
 
-        // 顺带把常驻通知挂回去
+        // 顺带把常驻通知挂回去（进度沿用上次存下来的）
         TaskForegroundService.update(
-                context, ReminderStore.panelTitle(context), ReminderStore.panelText(context));
+                context,
+                ReminderStore.panelTitle(context),
+                ReminderStore.panelText(context),
+                ReminderStore.progressDone(context),
+                ReminderStore.progressTotal(context));
     }
 }

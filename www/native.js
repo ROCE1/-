@@ -8,11 +8,11 @@ export function isNative() {
   return Boolean(plugin())
 }
 
-export async function syncState({ title, text, busy }) {
+export async function syncState({ title, text, busy, progressDone, progressTotal }) {
   const api = plugin()
   if (!api) return null
   try {
-    return await api.syncState({ title, text, busy })
+    return await api.syncState({ title, text, busy, progressDone, progressTotal })
   } catch (error) {
     console.warn('[native] syncState 失败', error)
     return null

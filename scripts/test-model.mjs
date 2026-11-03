@@ -8,10 +8,19 @@ import {
   countdown,
   projectDay,
   hasAnyTask,
+  moveInList,
   DEFAULT_THRESHOLDS,
 } from '../www/model.js'
 import { dayKind, detailOf, fitnessLine, itemsForDay, rotationFor } from '../www/fitness.js'
 import { monthDays, monthMatrix, monthTitle, shiftMonth } from '../www/calendar.js'
+import {
+  busyIntervals,
+  overlapMs,
+  percentLabel,
+  startOfWeek,
+  summarize,
+  formatDuration,
+} from '../www/stats.js'
 
 let passed = 0
 let failed = 0
@@ -152,6 +161,76 @@ check(
 check('翻月 12 月 → 次年 1 月', shiftMonth({ year: 2026, month: 12 }, 1), { year: 2027, month: 1 })
 check('翻月 1 月 → 上一年 12 月', shiftMonth({ year: 2026, month: 1 }, -1), { year: 2025, month: 12 })
 check('月份标题', monthTitle(2026, 11), '2026 年 11 月')
+
+/* ---------------- 手动排序 ---------------- */
+const ids = ['a', 'b', 'c']
+check('上移一格', moveInList(ids, 'b', -1), ['b', 'a', 'c'])
+check('下移一格', moveInList(ids, 'b', 1), ['a', 'c', 'b'])
+check('第一项上移无效', moveInList(ids, 'a', -1), ['a', 'b', 'c'])
+check('最后一项下移无效', moveInList(ids, 'c', 1), ['a', 'b', 'c'])
+check('找不到的 id 原样返回', moveInList(ids, 'zz', 1), ['a', 'b', 'c'])
+check('不修改入参', (() => {
+  moveInList(ids, 'a', 1)
+  return ids
+})(), ['a', 'b', 'c'])
+
+const ordered = [
+  { id: 'o2', title: '第二', type: 'main', repeat: { kind: 'daily' }, order: 2 },
+  { id: 'o0', title: '第零', type: 'main', repeat: { kind: 'daily' }, order: 0, deadline: '2026-11-03T23:00:00Z' },
+  { id: 'o1', title: '第一', type: 'main', repeat: { kind: 'daily' }, order: 1 },
+]
+check('手动排序优先于截止时间', projectDay(ordered, {}, '2026-11-03').main.map((e) => e.task.id), ['o0', 'o1', 'o2'])
+
+const mixedOrder = [
+  { id: 'free', title: '没排序', type: 'side', repeat: { kind: 'daily' } },
+  { id: 'pinned', title: '排过序', type: 'side', repeat: { kind: 'daily' }, order: 5 },
+]
+check('排过序的排在没排序的前面', projectDay(mixedOrder, {}, '2026-11-03').side.map((e) => e.task.id), ['pinned', 'free'])
+
+/* ---------------- 统计 ---------------- */
+const t = (hhmm) => new Date(`2026-11-03T${hhmm}:00`).getTime()
+const nowAt = new Date('2026-11-03T12:00:00')
+
+const merged = busyIntervals(
+  [
+    { kind: 'busy', start: new Date(t('09:00')).toISOString(), end: new Date(t('10:00')).toISOString() },
+    { kind: 'busy', start: new Date(t('09:30')).toISOString(), end: new Date(t('10:30')).toISOString() },
+  ],
+  nowAt.getTime(),
+)
+check('重叠的忙碌区间会合并', merged.length, 1)
+check('合并后边界正确', [merged[0][0], merged[0][1]], [t('09:00'), t('10:30')])
+
+const open = busyIntervals(
+  [{ kind: 'busy', start: new Date(t('11:00')).toISOString(), end: null }],
+  nowAt.getTime(),
+)
+check('未结束的会话算到当前时刻', [open[0][0], open[0][1]], [t('11:00'), nowAt.getTime()])
+check('坏数据被丢掉', busyIntervals([{ kind: 'busy', start: 'nope', end: null }], nowAt.getTime()).length, 0)
+check('非 busy 会话不参与统计', busyIntervals([{ kind: 'idle', start: new Date(t('09:00')).toISOString(), end: new Date(t('10:00')).toISOString() }], nowAt.getTime()).length, 0)
+
+check('裁剪到时间段内', overlapMs([[t('09:00'), t('11:00')]], t('10:00'), t('10:30')), 30 * 60000)
+check('完全不重叠为 0', overlapMs([[t('09:00'), t('10:00')]], t('11:00'), t('12:00')), 0)
+
+const sessions = [
+  { kind: 'busy', start: new Date(t('09:00')).toISOString(), end: new Date(t('10:00')).toISOString() },
+  { kind: 'busy', start: new Date(t('11:00')).toISOString(), end: null },
+]
+const summary = summarize(sessions, nowAt)
+check('今日忙碌 2 小时', summary.today.busyMs, 2 * 3600000)
+check('今日已过 12 小时', summary.today.elapsedMs, 12 * 3600000)
+check('今日空闲 10 小时', summary.today.idleMs, 10 * 3600000)
+check('今日占比约 16.7%', percentLabel(summary.today.percent), '16.7%')
+check('一周从周一开始', startOfWeek(nowAt), new Date('2026-11-02T00:00:00').getTime())
+check('本周已过 36 小时', summary.week.elapsedMs, 36 * 3600000)
+check('本周忙碌同样 2 小时', summary.week.busyMs, 2 * 3600000)
+
+check('时长文案 带分钟', formatDuration(2 * 3600000 + 15 * 60000), '2 小时 15 分')
+check('时长文案 整点', formatDuration(2 * 3600000), '2 小时')
+check('时长文案 不足一小时', formatDuration(25 * 60000), '25 分钟')
+check('时长文案 零', formatDuration(0), '0 分钟')
+check('百分比 0', percentLabel(0), '0%')
+check('百分比 100', percentLabel(1), '100%')
 
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed === 0 ? 0 : 1)

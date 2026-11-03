@@ -15,6 +15,8 @@ public class TaskForegroundService extends Service {
     static final String ACTION_STOP = "com.example.dshapp.STOP";
     static final String EXTRA_TITLE = "title";
     static final String EXTRA_TEXT = "text";
+    static final String EXTRA_DONE = "done";
+    static final String EXTRA_TOTAL = "total";
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -31,8 +33,17 @@ public class TaskForegroundService extends Service {
         if (title == null) title = ReminderStore.panelTitle(this);
         if (text == null) text = ReminderStore.panelText(this);
 
+        // 进程被系统重启时 intent 里没有进度，从存储兜底，避免进度条闪回 0
+        int done = intent != null ? intent.getIntExtra(EXTRA_DONE, -1) : -1;
+        int total = intent != null ? intent.getIntExtra(EXTRA_TOTAL, -1) : -1;
+        if (done < 0 || total < 0) {
+            done = ReminderStore.progressDone(this);
+            total = ReminderStore.progressTotal(this);
+        }
+
         ReminderStore.setPanel(this, title, text);
-        startForeground(Notifier.ID_ONGOING, Notifier.ongoing(this, title, text));
+        ReminderStore.setProgress(this, done, total);
+        startForeground(Notifier.ID_ONGOING, Notifier.ongoing(this, title, text, done, total));
         return START_STICKY;
     }
 
@@ -47,11 +58,13 @@ public class TaskForegroundService extends Service {
         super.onTaskRemoved(rootIntent);
     }
 
-    static void update(Context context, String title, String text) {
+    static void update(Context context, String title, String text, int done, int total) {
         Intent intent = new Intent(context, TaskForegroundService.class);
         intent.setAction(ACTION_UPDATE);
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_TEXT, text);
+        intent.putExtra(EXTRA_DONE, done);
+        intent.putExtra(EXTRA_TOTAL, total);
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             context.startForegroundService(intent);
         } else {

@@ -6,11 +6,12 @@
 
 ```
 www/                  唯一的前端源（HTML/CSS/JS 模块，无构建步骤）
-  index.html          五个页签 + 四个弹窗
+  index.html          六个页签 + 四个弹窗
   app.js              界面与交互（唯一控制器，改功能基本都在这）
-  model.js            任务/重复规则/倒计时的纯逻辑
+  model.js            任务/重复规则/倒计时/手动排序的纯逻辑
   fitness.js          健身轮换（力量日↔有氧日）与文案的纯逻辑
   calendar.js         月历网格的纯逻辑
+  stats.js            统计（忙碌区间合并与裁剪、占比）的纯逻辑
   store.js            IndexedDB（v2）读写与领域封装
   native.js           安卓原生插件封装（浏览器里全是空实现）
   themes.js           皮肤注册表（颜色全走 CSS 变量）
@@ -143,6 +144,12 @@ core.sshCommand  ssh -i D:/dev/.ssh/id_ed25519_dshapp -o IdentitiesOnly=yes -o U
   力量日记 `sets/reps`，有氧日记 `minutes/km`，`repeat` 复用任务的重复规则。
 - **数据迁移**：`store.migrateFitnessTasks()` 在启动时把旧 `type='fitness'` 的任务搬进 `fitness`，
   id 不变，所以历史完成记录（`${id}@${date}`）继续有效。
+- **手动排序**：顺序存在 `task.order`（同一类型内 0..n-1，越小越靠前）；排过序的排在没排序的前面，
+  都没排序时退回“截止时间升序 + 标题”。上下箭头调序时会把整组重新编号落库。
+- **统计口径**：`sessions` 只记了「繁忙」区间（`kind='busy'`），所以空闲 = 已过去的时间 − 忙碌；
+  未结束的会话按“到当前时刻”计，重叠区间合并。改统计前先看 `www/stats.js` 的测试。
+- **通知与小组件同源**：常驻通知的标题/正文/进度存在 `ReminderStore`（SharedPreferences），
+  桌面小组件 `TaskWidgetProvider` 直接读它，所以 `syncState` 之后两边一定一致。
 - **改静态资源要同步改 `index.html` 里的 `?v=`**，否则 WebView 可能吃旧缓存。
 
 ## 安卓签名与更新（已跑通）

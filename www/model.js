@@ -96,6 +96,13 @@ export function projectDay(tasks, occurrenceDone, key) {
   }
 
   const sortByDeadline = (a, b) => {
+    // 手动排序优先：只要两边都排过序就按 order；只排过一边的排在前面
+    const oa = Number.isFinite(a.task.order) ? a.task.order : null
+    const ob = Number.isFinite(b.task.order) ? b.task.order : null
+    if (oa !== null && ob !== null && oa !== ob) return oa - ob
+    if (oa !== null && ob === null) return -1
+    if (oa === null && ob !== null) return 1
+
     const da = a.task.deadline ? new Date(a.task.deadline).getTime() : Infinity
     const db = b.task.deadline ? new Date(b.task.deadline).getTime() : Infinity
     if (da !== db) return da - db
@@ -110,4 +117,19 @@ export function projectDay(tasks, occurrenceDone, key) {
 export function hasAnyTask(tasks, occurrenceDone, key) {
   const groups = projectDay(tasks, occurrenceDone, key)
   return Object.keys(groups).some((type) => groups[type].length > 0)
+}
+
+/**
+ * 手动排序：在“当前可见顺序”的 id 列表里把某一项上移/下移一格。
+ * delta = -1 上移、+1 下移；越界或找不到就原样返回。
+ */
+export function moveInList(ids, id, delta) {
+  const from = ids.indexOf(id)
+  if (from < 0) return ids.slice()
+  const to = from + delta
+  if (to < 0 || to >= ids.length) return ids.slice()
+  const next = ids.slice()
+  next.splice(from, 1)
+  next.splice(to, 0, id)
+  return next
 }

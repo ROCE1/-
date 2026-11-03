@@ -445,6 +445,135 @@ body::before {
 }
 
 /* ============================================================
+ * 今日页：手动排序
+ * ============================================================ */
+.list-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.list-hint {
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.chip-toggle {
+  appearance: none;
+  margin-left: auto;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chip-toggle.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.order-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.order-btn {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* ============================================================
+ * 统计页：环形图
+ * ============================================================ */
+.stats-card {
+  padding: 18px 16px;
+}
+
+.rings {
+  display: flex;
+  justify-content: space-around;
+  gap: 16px;
+}
+
+.ring-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.ring-wrap {
+  position: relative;
+  width: 128px;
+  height: 128px;
+}
+
+.ring {
+  display: block;
+  width: 128px;
+  height: 128px;
+}
+
+.ring-track {
+  stroke: var(--line);
+}
+
+.ring-arc {
+  stroke: var(--accent);
+  transition: stroke-dashoffset 0.4s ease;
+}
+
+.ring-center {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ring-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.stats-note {
+  margin-top: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 14px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+}
+
+.stat-row:last-child {
+  border-bottom: none;
+}
+
+/* ============================================================
  * 记录页：每日总结 + 记录卡
  * ============================================================ */
 .journal-row {
@@ -647,7 +776,7 @@ body::before {
  * ============================================================ */
 .tabbar {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   border-top: 1px solid var(--line);
   background: var(--panel);
   padding-bottom: env(safe-area-inset-bottom);
@@ -659,7 +788,7 @@ body::before {
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
   padding: 12px 0;
   cursor: pointer;
 }

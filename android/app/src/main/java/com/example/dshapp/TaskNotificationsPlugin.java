@@ -38,10 +38,17 @@ public class TaskNotificationsPlugin extends Plugin {
         String title = call.getString("title", "今日任务");
         String text = call.getString("text", "还没有任务");
         Boolean busy = call.getBoolean("busy", false);
+        Integer done = call.getInt("progressDone", 0);
+        Integer total = call.getInt("progressTotal", 0);
+        int doneCount = done == null ? 0 : done;
+        int totalCount = total == null ? 0 : total;
 
         ReminderStore.setBusy(getContext(), Boolean.TRUE.equals(busy));
         ReminderStore.setPanel(getContext(), title, text);
-        TaskForegroundService.update(getContext(), title, text);
+        ReminderStore.setProgress(getContext(), doneCount, totalCount);
+        TaskForegroundService.update(getContext(), title, text, doneCount, totalCount);
+        // 桌面小组件跟常驻通知同源，一起刷新
+        TaskWidgetProvider.refresh(getContext());
 
         call.resolve();
     }

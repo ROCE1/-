@@ -55,8 +55,8 @@ final class Notifier {
         manager.createNotificationChannel(soft);
     }
 
-    /** 常驻通知：锁屏可见、不可滑动清除。 */
-    static Notification ongoing(Context context, String title, String text) {
+    /** 常驻通知：锁屏可见、不可滑动清除；total > 0 时带完成进度条。 */
+    static Notification ongoing(Context context, String title, String text, int done, int total) {
         PendingIntent content = openApp(context, 0);
 
         Notification.Builder builder = builder(context, CHANNEL_ONGOING)
@@ -71,6 +71,9 @@ final class Notifier {
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setPriority(Notification.PRIORITY_DEFAULT);
 
+        if (total > 0) {
+            builder.setProgress(total, Math.max(0, Math.min(done, total)), false);
+        }
         return builder.build();
     }
 

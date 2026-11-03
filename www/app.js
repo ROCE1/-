@@ -1,9 +1,10 @@
-import { dateKey, countdown, hasAnyTask, projectDay, weekdayOf } from './model.js'
+import { dateKey, countdown, hasAnyTask, moveInList, projectDay, weekdayOf } from './model.js'
 import * as store from './store.js'
 import * as native from './native.js'
 import { apply as applyTheme, current as currentTheme, list as listThemes } from './themes.js'
 import { DAY_LABEL, dayKind, detailOf, fitnessLine, itemsForDay, rotationFor } from './fitness.js'
 import { monthDays, monthMatrix, monthTitle, shiftMonth } from './calendar.js'
+import { formatDuration, percentLabel, summarize } from './stats.js'
 
 const SOURCE = { owner: 'ROCE1', repo: '-', mirror: 'https://gh-proxy.com/' }
 const WEEK_LABEL = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -16,6 +17,7 @@ const state = {
   date: dateKey(),
   calendarDate: dateKey(),
   month: monthOf(dateKey()),
+  sortMode: false,
   tasks: [],
   fitness: [],
   done: {},
@@ -63,6 +65,8 @@ async function reload() {
 /* ---------------- 原生通知与闹钟 ---------------- */
 
 const LEAD_MINUTES = 15
+// 常驻通知最多显示 5 行任务（健身另起一行）
+const MAX_PANEL_LINES = 5
 
 function panelLines(groups) {
   const lines = []
@@ -73,7 +77,7 @@ function panelLines(groups) {
         ? countdown(entry.task.deadline, new Date(), state.settings?.countdownThresholds)
         : null
       lines.push(`${TYPE_LABEL[type]} ${entry.task.title}${info ? ` · ${info.label}` : ''}`)
-      if (lines.length >= 3) return lines
+      if (lines.length >= MAX_PANEL_LINES) return lines
     }
   }
   return lines
@@ -92,10 +96,15 @@ async function refreshNotifications() {
   const fitLine = fitnessLine(state.fitness, kind, state.date, state.done)
   if (fitLine) lines.push(fitLine)
 
+  const total = TASK_TYPES.reduce((sum, type) => sum + groups[type].length, 0)
+  const doneCount = TASK_TYPES.reduce((sum, type) => sum + groups[type].filter((i) => i.done).length, 0)
+
   await native.syncState({
-    title: busy ? '繁忙中 · 今日任务' : '空闲 · 今日任务',
+    title: `${busy ? '繁忙中' : '空闲'} · 今日任务 ${doneCount}/${total}`,
     text: lines.length ? lines.join('\n') : '今天还没有任务',
     busy,
+    progressDone: doneCount,
+    progressTotal: total,
   })
 
   await native.cancelAll()
@@ -236,8 +245,9 @@ function swipeShell(onDelete) {
   return { wrap, remove }
 }
 
-function taskRow(entry, date) {
+function taskRow(entry, date, options = {}) {
   const { task, done } = entry
+  const { sortable = false, onMove } = options
   const { wrap, remove } = swipeShell(async () => {
     await store.deleteTask(task.id)
     await reload()
@@ -269,6 +279,25 @@ function taskRow(entry, date) {
   if (meta.children.length) body.appendChild(meta)
 
   row.append(checkbox, body)
+
+  if (sortable) {
+    const arrows = el('div', 'order-buttons')
+    for (const [glyph, delta, label] of [
+      ['↑', -1, '上移'],
+      ['↓', 1, '下移'],
+    ]) {
+      const button = el('button', 'order-btn', glyph)
+      button.type = 'button'
+      button.setAttribute('aria-label', label)
+      button.addEventListener('click', (event) => {
+        event.stopPropagation()
+        onMove?.(entry, delta)
+      })
+      arrows.appendChild(button)
+    }
+    row.appendChild(arrows)
+  }
+
   row.addEventListener('click', () => openEditor(task, date))
   attachSwipe(row)
 
@@ -276,29 +305,139 @@ function taskRow(entry, date) {
   return wrap
 }
 
-function section(type, entries, date) {
+function section(type, entries, date, rowOptions) {
   const wrap = el('section', `group group-${type}`)
   const head = el('div', 'group-head')
   head.append(el('span', 'group-title', TYPE_LABEL[type]), el('span', 'group-count', String(entries.length)))
   wrap.appendChild(head)
   if (entries.length === 0) wrap.appendChild(el('div', 'empty', `没有${TYPE_LABEL[type]}任务`))
-  else for (const entry of entries) wrap.appendChild(taskRow(entry, date))
+  else for (const entry of entries) wrap.appendChild(taskRow(entry, date, rowOptions))
   return wrap
 }
 
 /* ---------------- 今日 ---------------- */
+
+/** 手动排序：把同类型里这一条上移/下移一格，然后把整组重新编号并落库。 */
+async function moveTask(entry, delta) {
+  const groups = projectDay(state.tasks, state.done, state.date)
+  const ids = groups[entry.task.type].map((item) => item.task.id)
+  const next = moveInList(ids, entry.task.id, delta)
+  if (next.every((id, index) => id === ids[index])) return
+
+  await Promise.all(
+    next.map((id, index) => {
+      const task = state.tasks.find((item) => item.id === id)
+      return task ? store.saveTask({ ...task, order: index }) : null
+    }),
+  )
+  await reload()
+  await rerender()
+}
+
+/** 新建任务：如果这一类型已经有人排过序，就接在最后面。 */
+function nextOrderFor(type) {
+  const siblings = state.tasks.filter((item) => item.type === type && Number.isFinite(item.order))
+  return siblings.length ? Math.max(...siblings.map((item) => item.order)) + 1 : undefined
+}
 
 function renderToday() {
   const groups = projectDay(state.tasks, state.done, state.date)
   const view = $('#view')
   view.replaceChildren()
 
-  for (const type of TASK_TYPES) view.appendChild(section(type, groups[type], state.date))
+  const bar = el('div', 'list-bar')
+  if (state.sortMode) bar.appendChild(el('span', 'list-hint', '用 ↑ ↓ 调整顺序，调完点「完成」'))
+  const sortButton = el('button', `chip-toggle${state.sortMode ? ' active' : ''}`, state.sortMode ? '完成' : '排序')
+  sortButton.type = 'button'
+  sortButton.addEventListener('click', () => {
+    state.sortMode = !state.sortMode
+    rerender()
+  })
+  bar.appendChild(sortButton)
+  view.appendChild(bar)
+
+  const rowOptions = state.sortMode ? { sortable: true, onMove: (entry, delta) => moveTask(entry, delta) } : undefined
+  for (const type of TASK_TYPES) view.appendChild(section(type, groups[type], state.date, rowOptions))
 
   const total = TASK_TYPES.reduce((sum, type) => sum + groups[type].length, 0)
   const doneCount = TASK_TYPES.reduce((sum, type) => sum + groups[type].filter((i) => i.done).length, 0)
   $('#today-summary').textContent =
     total === 0 ? '今天还没有任务，点右下角 ＋ 新建' : `已完成 ${doneCount} / ${total}`
+}
+
+/* ---------------- 统计 ---------------- */
+
+function ringBlock(label, data) {
+  const size = 128
+  const stroke = 12
+  const radius = (size - stroke) / 2
+  const circumference = 2 * Math.PI * radius
+  const svgNs = 'http://www.w3.org/2000/svg'
+
+  const svg = document.createElementNS(svgNs, 'svg')
+  svg.setAttribute('viewBox', `0 0 ${size} ${size}`)
+  svg.setAttribute('class', 'ring')
+  svg.setAttribute('role', 'img')
+  svg.setAttribute('aria-label', `${label}工作占比 ${percentLabel(data.percent)}`)
+
+  const track = document.createElementNS(svgNs, 'circle')
+  track.setAttribute('cx', String(size / 2))
+  track.setAttribute('cy', String(size / 2))
+  track.setAttribute('r', String(radius))
+  track.setAttribute('fill', 'none')
+  track.setAttribute('stroke-width', String(stroke))
+  track.setAttribute('class', 'ring-track')
+
+  const arc = document.createElementNS(svgNs, 'circle')
+  arc.setAttribute('cx', String(size / 2))
+  arc.setAttribute('cy', String(size / 2))
+  arc.setAttribute('r', String(radius))
+  arc.setAttribute('fill', 'none')
+  arc.setAttribute('stroke-width', String(stroke))
+  arc.setAttribute('stroke-linecap', 'round')
+  arc.setAttribute('stroke-dasharray', String(circumference))
+  arc.setAttribute('stroke-dashoffset', String(circumference * (1 - Math.max(0, Math.min(1, data.percent)))))
+  arc.setAttribute('transform', `rotate(-90 ${size / 2} ${size / 2})`)
+  arc.setAttribute('class', 'ring-arc')
+
+  svg.append(track, arc)
+
+  const wrap = el('div', 'ring-wrap')
+  wrap.append(svg, el('div', 'ring-center', percentLabel(data.percent)))
+
+  const block = el('div', 'ring-block')
+  block.append(wrap, el('div', 'ring-label', label))
+  return block
+}
+
+function statRow(label, value) {
+  const row = el('div', 'stat-row')
+  row.append(el('span', 'muted', label), el('span', '', value))
+  return row
+}
+
+async function renderStats() {
+  const view = $('#view')
+  view.replaceChildren()
+  const sessions = await store.getAll('sessions')
+  const summary = summarize(sessions, new Date())
+  $('#today-summary').textContent = '工作 / 空闲占比（来自「繁忙」开关）'
+
+  const card = el('section', 'card stats-card')
+  const rings = el('div', 'rings')
+  rings.append(ringBlock('今日', summary.today), ringBlock('本周', summary.week))
+  card.appendChild(rings)
+  card.appendChild(el('div', 'stats-note muted', '空闲 = 已过去的时间 − 繁忙时长；没开 App 的时段也算空闲。'))
+  view.appendChild(card)
+
+  const detail = el('section', 'card')
+  detail.append(
+    statRow('今日工作', formatDuration(summary.today.busyMs)),
+    statRow('今日空闲', formatDuration(summary.today.idleMs)),
+    statRow('本周工作', formatDuration(summary.week.busyMs)),
+    statRow('本周空闲', formatDuration(summary.week.idleMs)),
+  )
+  view.appendChild(detail)
 }
 
 /* ---------------- 健身 ---------------- */
@@ -1209,6 +1348,7 @@ async function render() {
   else if (state.tab === 'fitness') renderFitness()
   else if (state.tab === 'calendar') await renderCalendar()
   else if (state.tab === 'records') await renderRecords()
+  else if (state.tab === 'stats') await renderStats()
   else renderSettings()
 }
 
@@ -1347,7 +1487,7 @@ async function boot() {
     if (!data.title) return
     const task = state.editing
       ? { ...state.editing, ...data }
-      : { ...data, id: crypto.randomUUID(), createdAt: new Date().toISOString() }
+      : { ...data, id: crypto.randomUUID(), createdAt: new Date().toISOString(), order: nextOrderFor(data.type) }
     await store.saveTask(task)
     $('#task-dialog').close()
     await reload()

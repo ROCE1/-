@@ -21,6 +21,8 @@ final class ReminderStore {
     private static final String KEY_ALARMS = "alarms";
     private static final String KEY_TITLE = "panel_title";
     private static final String KEY_TEXT = "panel_text";
+    private static final String KEY_DONE = "panel_done";
+    private static final String KEY_TOTAL = "panel_total";
 
     private ReminderStore() {}
 
@@ -46,6 +48,19 @@ final class ReminderStore {
 
     static String panelText(Context context) {
         return prefs(context).getString(KEY_TEXT, "还没有任务");
+    }
+
+    /** 今日任务完成进度（done/total），供常驻通知的进度条与桌面小组件使用。 */
+    static void setProgress(Context context, int done, int total) {
+        prefs(context).edit().putInt(KEY_DONE, done).putInt(KEY_TOTAL, total).apply();
+    }
+
+    static int progressDone(Context context) {
+        return prefs(context).getInt(KEY_DONE, 0);
+    }
+
+    static int progressTotal(Context context) {
+        return prefs(context).getInt(KEY_TOTAL, 0);
     }
 
     static synchronized void putAlarm(Context context, JSONObject alarm) {

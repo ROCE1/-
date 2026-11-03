@@ -186,26 +186,48 @@ async function main() {
     const bodyText = await evaluate('document.body.innerText')
     check('页面没有启动失败', !bodyText.includes('启动失败'), bodyText.slice(0, 120))
     check('今日页有分区', bodyText.includes('紧急') && bodyText.includes('主线') && bodyText.includes('支线'))
+    check('底部有六个页签', (await evaluate(`document.querySelectorAll('.tab').length`)) === 6)
 
-    // 新建一条主线任务
-    await evaluate(`document.querySelector('#add-task').click()`)
-    await waitFor(() => evaluate(`document.querySelector('#task-dialog')?.open === true`), { label: '任务弹窗' })
-    await evaluate(`
-      document.querySelector('#task-form [name="title"]').value = '冒烟任务'
-      document.querySelector('#task-form [name="type"]').value = 'main'
-      document.querySelector('#task-form').requestSubmit()
-    `)
-    await waitFor(() => evaluate(`document.body.innerText.includes('冒烟任务')`), { label: '任务写入并显示' })
+    // 新建两条主线任务（用于排序）
+    for (const name of ['冒烟任务B', '冒烟任务A']) {
+      await evaluate(`document.querySelector('#add-task').click()`)
+      await waitFor(() => evaluate(`document.querySelector('#task-dialog')?.open === true`), { label: '任务弹窗' })
+      await evaluate(`
+        (() => {
+          const form = document.querySelector('#task-form')
+          form.elements.title.value = '${name}'
+          form.elements.type.value = 'main'
+          form.requestSubmit()
+        })()
+      `)
+      await waitFor(() => evaluate(`document.body.innerText.includes('${name}')`), { label: `任务 ${name} 写入` })
+    }
     check('新建任务出现在今日列表', true)
+
+    const mainTitles = () => evaluate(`Array.from(document.querySelectorAll('.group-main .task-title')).map((n) => n.textContent).join('|')`)
+    check('无截止时间时按标题排序', (await mainTitles()) === '冒烟任务A|冒烟任务B', await mainTitles())
+
+    // 手动排序：打开排序模式，把第一条下移
+    await evaluate(`document.querySelector('.chip-toggle').click()`)
+    await waitFor(() => evaluate(`document.querySelectorAll('.group-main .order-btn').length >= 4`), { label: '排序按钮' })
+    await evaluate(`
+      const rows = Array.from(document.querySelectorAll('.group-main .task'))
+      rows[0].querySelectorAll('.order-btn')[1].click()
+    `)
+    await waitFor(async () => (await mainTitles()) === '冒烟任务B|冒烟任务A', { label: '排序生效' })
+    check('排序按钮能调换顺序', true)
+    await evaluate(`document.querySelector('.chip-toggle').click()`)
+    await waitFor(() => evaluate(`document.querySelectorAll('.order-btn').length === 0`), { label: '退出排序模式' })
+    check('排序结果在退出排序模式后保留', (await mainTitles()) === '冒烟任务B|冒烟任务A', await mainTitles())
 
     // 勾选任务完成
     await evaluate(`
       Array.from(document.querySelectorAll('#view .task'))
-        .find((row) => row.innerText.includes('冒烟任务'))
+        .find((row) => row.innerText.includes('冒烟任务A'))
         .querySelector('.check')
         .click()
     `)
-    await waitFor(() => evaluate(`document.body.innerText.includes('已完成 1 / 1')`), { label: '任务完成计数' })
+    await waitFor(() => evaluate(`document.body.innerText.includes('已完成 1 / 2')`), { label: '任务完成计数' })
     check('任务勾选后计数更新', true)
 
     // 健身页：轮换页签 + 新建一条力量项
@@ -254,6 +276,13 @@ async function main() {
     `)
     await waitFor(() => evaluate(`document.body.innerText.includes('冒烟测试写的一行')`), { label: '总结出现在列表' })
     check('总结保存后出现在历史列表', true)
+
+    // 统计页：两个环图 + 明细
+    await evaluate(`document.querySelector('[data-tab="stats"]').click()`)
+    await waitFor(() => evaluate(`document.querySelectorAll('#view .ring').length === 2`), { label: '统计页' })
+    const statsText = await evaluate(`document.querySelector('#view').innerText`)
+    check('统计页有今日/本周环图', statsText.includes('今日') && statsText.includes('本周') && statsText.includes('%'), statsText.slice(0, 80))
+    check('统计页有明细行', statsText.includes('今日工作') && statsText.includes('本周空闲'))
 
     // 设置页
     await evaluate(`document.querySelector('[data-tab="settings"]').click()`)
