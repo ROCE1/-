@@ -1,80 +1,164 @@
-/* 三种运行环境共用这一份脚本：
- * 1) Electron 桌面端：window.bridge 由 preload 注入，检查/下载/安装走主进程。
- * 2) Capacitor 安卓端：用 CapacitorHttp 拉清单（原生请求，绕开 CORS），下载交给系统浏览器。
- * 3) 纯浏览器 / PWA：两者都没有，只做展示。
- */
-const $ = (id) => document.getElementById(id)
+import { dateKey, projectDay, countdown, fitnessSummary } from './model.js'
+import * as store from './store.js'
 
-// 安卓/网页端没有主进程可读 app.config.json，这里保留同一份仓库坐标。
-// 改仓库时记得同时改 app.config.json 与这里（AGENTS.md 有备注）。
-const SOURCE = {
-  owner: 'ROCE1',
-  repo: '-',
-  mirror: 'https://gh-proxy.com/',
-}
+const SOURCE = { owner: 'ROCE1', repo: '-', mirror: 'https://gh-proxy.com/' }
 
 const state = {
+  tab: 'today',
+  date: dateKey(),
+  tasks: [],
+  done: {},
+  settings: null,
+  editing: null,
   env: 'web',
-  version: '0.0.0',
+  version: '—',
   update: null,
 }
 
-function setStatus(text, tone) {
-  const el = $('update-status')
-  el.textContent = text
-  el.className = tone || ''
+const $ = (sel, root = document) => root.querySelector(sel)
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel))
+
+const TYPE_LABEL = { urgent: '紧急', main: '主线', side: '支线', fitness: '健身' }
+const TYPE_ORDER = ['urgent', 'main', 'side', 'fitness']
+
+function el(tag, className, text) {
+  const node = document.createElement(tag)
+  if (className) node.className = className
+  if (text !== undefined) node.textContent = text
+  return node
 }
 
-function setProgress(received, total) {
-  const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0
-  $('progress-wrap').hidden = false
-  $('progress-fill').style.width = `${percent}%`
-  const mb = (n) => (n / 1024 / 1024).toFixed(1)
-  $('progress-text').textContent = total > 0 ? `${percent}% · ${mb(received)}/${mb(total)} MB` : `${mb(received)} MB`
+async function reload() {
+  state.tasks = await store.listTasks()
+  state.done = await store.doneMapFor(state.date)
+  state.settings = await store.loadSettings()
 }
 
-function compareVersions(a, b) {
-  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0)
-  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0)
-  for (let i = 0; i < 3; i += 1) {
-    const diff = (pa[i] || 0) - (pb[i] || 0)
-    if (diff !== 0) return diff
+/* ---------------- 今日 ---------------- */
+
+function chipFor(task) {
+  if (!task.deadline) return null
+  const info = countdown(task.deadline, new Date(), state.settings?.countdownThresholds)
+  if (!info) return null
+  return el('span', `chip chip-${info.level}`, info.label)
+}
+
+function taskRow(entry) {
+  const { task, done } = entry
+  const row = el('div', `task${done ? ' done' : ''}`)
+
+  const checkbox = el('button', 'check')
+  checkbox.type = 'button'
+  checkbox.setAttribute('aria-label', done ? '取消完成' : '标记完成')
+  checkbox.textContent = done ? '✓' : ''
+  checkbox.addEventListener('click', async (event) => {
+    event.stopPropagation()
+    await store.setDone(task.id, state.date, !done)
+    await reload()
+    render()
+  })
+
+  const body = el('div', 'task-body')
+  body.appendChild(el('div', 'task-title', task.title))
+
+  const meta = el('div', 'task-meta')
+  if (task.strong) meta.appendChild(el('span', 'badge strong', '强'))
+  const chip = chipFor(task)
+  if (chip) meta.appendChild(chip)
+  if (meta.children.length) body.appendChild(meta)
+
+  row.append(checkbox, body)
+  row.addEventListener('click', () => openEditor(task))
+  return row
+}
+
+function section(type, entries) {
+  const wrap = el('section', `group group-${type}`)
+  const head = el('div', 'group-head')
+  head.append(el('span', 'group-title', TYPE_LABEL[type]), el('span', 'group-count', String(entries.length)))
+  wrap.appendChild(head)
+  if (entries.length === 0) wrap.appendChild(el('div', 'empty', '今天没有'))
+  else for (const entry of entries) wrap.appendChild(taskRow(entry))
+  return wrap
+}
+
+function renderToday() {
+  const groups = projectDay(state.tasks, state.done, state.date)
+  const view = $('#view')
+  view.replaceChildren()
+
+  for (const type of TYPE_ORDER) {
+    if (type === 'fitness' && groups.fitness.length === 0) continue
+    view.appendChild(section(type, groups[type]))
   }
-  return 0
+
+  const total = Object.values(groups).reduce((sum, list) => sum + list.length, 0)
+  const doneCount = Object.values(groups).reduce((sum, list) => sum + list.filter((i) => i.done).length, 0)
+  $('#today-summary').textContent = total === 0 ? '今天还没有任务' : `已完成 ${doneCount} / ${total}`
 }
 
-async function readBundledVersion() {
-  try {
-    const res = await fetch('./app-version.json', { cache: 'no-store' })
-    if (res.ok) return (await res.json()).version || '0.0.0'
-  } catch {
-    /* 没打包版本文件时退回默认值 */
-  }
-  return '0.0.0'
+/* ---------------- 编辑器 ---------------- */
+
+function syncRepeatFields() {
+  const kind = $('#repeat-kind').value
+  for (const field of $$('[data-repeat]')) field.hidden = field.dataset.repeat !== kind
 }
 
-async function detectEnvironment() {
-  if (window.bridge && typeof window.bridge.info === 'function') {
-    const info = await window.bridge.info()
-    state.env = 'desktop'
-    state.version = info.version
-    $('mode').textContent = `桌面端（Electron ${info.platform}）· ${info.packaged ? '已打包' : '开发模式'}`
-    return
-  }
+function fillForm(task) {
+  const form = $('#task-form')
+  form.reset()
+  $('#dialog-title').textContent = task ? '编辑任务' : '新建任务'
+  form.elements.onceDate.value = state.date
+  syncRepeatFields()
+  if (!task) return
 
-  if (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) {
-    state.env = 'android'
-    state.version = await readBundledVersion()
-    $('mode').textContent = '安卓端（Capacitor）'
-    return
+  form.elements.title.value = task.title
+  form.elements.type.value = task.type
+  form.elements.repeatKind.value = task.repeat.kind
+  form.elements.deadline.value = task.deadline ? task.deadline.slice(0, 16) : ''
+  form.elements.strong.checked = Boolean(task.strong)
+  form.elements.notes.value = task.notes || ''
+  if (task.repeat.kind === 'once') form.elements.onceDate.value = task.repeat.date
+  if (task.repeat.kind === 'everyN') form.elements.everyN.value = task.repeat.n
+  if (task.repeat.kind === 'weekly') {
+    for (const option of form.elements.weeklyDays.options) {
+      option.selected = task.repeat.days.includes(Number(option.value))
+    }
   }
-
-  state.env = 'web'
-  state.version = await readBundledVersion()
-  $('mode').textContent = '网页端（PWA，可直接加到主屏幕）'
+  syncRepeatFields()
 }
 
-/** 安卓端用 CapacitorHttp 发请求：走原生栈，不受 CORS 限制。 */
+function openEditor(task) {
+  state.editing = task || null
+  fillForm(task)
+  $('#task-dialog').showModal()
+}
+
+function readForm() {
+  const form = $('#task-form')
+  const kind = form.elements.repeatKind.value
+  let repeat
+  if (kind === 'once') repeat = { kind, date: form.elements.onceDate.value || state.date }
+  else if (kind === 'weekly') {
+    const days = Array.from(form.elements.weeklyDays.selectedOptions).map((o) => Number(o.value))
+    repeat = { kind, days: days.length ? days : [new Date().getDay()] }
+  } else if (kind === 'everyN') {
+    repeat = { kind, n: Number(form.elements.everyN.value) || 1, anchor: state.date }
+  } else repeat = { kind: 'daily' }
+
+  const deadlineValue = form.elements.deadline.value
+  return {
+    title: form.elements.title.value.trim(),
+    type: form.elements.type.value,
+    repeat,
+    deadline: deadlineValue ? new Date(deadlineValue).toISOString() : null,
+    strong: form.elements.strong.checked,
+    notes: form.elements.notes.value.trim(),
+  }
+}
+
+/* ---------------- 更新（保留原有能力） ---------------- */
+
 async function nativeGetText(url) {
   const http = window.Capacitor?.Plugins?.CapacitorHttp
   if (http && typeof http.get === 'function') {
@@ -87,144 +171,221 @@ async function nativeGetText(url) {
   return res.text()
 }
 
-async function checkMobileUpdate() {
-  const release = `https://github.com/${SOURCE.owner}/${SOURCE.repo}/releases/latest/download`
-  const candidates = [
-    `${SOURCE.mirror}${release}/latest.yml`,
-    `${release}/latest.yml`,
-  ]
-  const failures = []
-  for (const url of candidates) {
-    try {
-      const text = await nativeGetText(url)
-      const latest = /^version:\s*(.+)$/m.exec(text)?.[1]?.trim()
-      if (!latest) throw new Error('清单里没有 version')
-      const apkUrl = `${SOURCE.mirror}https://github.com/${SOURCE.owner}/${SOURCE.repo}/releases/latest/download/DSH-App-${latest}-release.apk`
-      return {
-        ok: true,
-        current: state.version,
-        latest,
-        hasUpdate: compareVersions(latest, state.version) > 0,
-        apkUrl,
-        page: `https://github.com/${SOURCE.owner}/${SOURCE.repo}/releases`,
-        sourceHost: new URL(url).host,
-      }
-    } catch (error) {
-      failures.push(`${url} → ${error.message}`)
-    }
-  }
-  return { ok: false, reason: 'unreachable', message: `所有更新地址都连不上（试了 ${candidates.length} 个）`, detail: failures.join('\n') }
-}
-
 async function checkUpdate() {
-  const button = $('check')
-  button.disabled = true
-  $('download').hidden = true
-  $('open').hidden = true
-  $('progress-wrap').hidden = true
-  setStatus('正在检查…')
-
+  const status = $('#update-status')
+  status.textContent = '检查中…'
   try {
-    const result = state.env === 'desktop'
-      ? await window.bridge.checkUpdate()
-      : await checkMobileUpdate()
-
-    if (!result.ok) {
-      setStatus(result.message || '检查失败', 'warn')
+    if (state.env === 'desktop') {
+      const result = await window.bridge.checkUpdate()
+      if (!result.ok) {
+        status.textContent = result.message || '检查失败'
+        return
+      }
+      state.update = result
+      status.textContent = result.hasUpdate
+        ? `有新版本 ${result.latest}（当前 ${result.current}）`
+        : `已是最新（${result.current}）`
       return
     }
 
-    state.update = result
-    const source = result.sourceHost || (result.manifestUrl ? new URL(result.manifestUrl).host : '')
-    const suffix = source ? ` · 来源 ${source}` : ''
-
-    if (result.hasUpdate) {
-      setStatus(`有新版本 ${result.latest}（当前 ${result.current}）${suffix}`, 'ok')
-      $('download').hidden = false
-      $('open').hidden = false
-      $('download').textContent = state.env === 'desktop' ? '下载并安装' : '下载并安装（浏览器）'
-    } else {
-      setStatus(`已是最新（${result.current}）${suffix}`, 'ok')
+    const release = `https://github.com/${SOURCE.owner}/${SOURCE.repo}/releases/latest/download`
+    const text = await nativeGetText(`${SOURCE.mirror}${release}/latest.yml`)
+    const latest = /^version:\s*(.+)$/m.exec(text)?.[1]?.trim()
+    const hasUpdate = latest && latest !== state.version
+    state.update = {
+      latest,
+      hasUpdate,
+      apkUrl: `${SOURCE.mirror}${release}/DSH-App-${latest}-release.apk`,
     }
+    status.textContent = hasUpdate ? `有新版本 ${latest}（当前 ${state.version}）` : `已是最新（${state.version}）`
   } catch (error) {
-    setStatus(`检查出错：${error.message}`, 'err')
-  } finally {
-    button.disabled = false
+    status.textContent = `检查失败：${error.message}`
   }
 }
 
-async function downloadAndInstall() {
-  const button = $('download')
-  if (!state.update) {
-    setStatus('还没有可用的更新信息', 'err')
-    return
-  }
-
-  // 桌面端：主进程下载、校验、静默安装
+async function installUpdate() {
+  const status = $('#update-status')
+  if (!state.update?.hasUpdate) return
   if (state.env === 'desktop') {
-    if (!state.update.downloadUrl) {
-      setStatus('清单里没有可用的下载地址', 'err')
-      return
-    }
-    button.disabled = true
-    $('check').disabled = true
-    setStatus('正在下载…')
+    status.textContent = '下载中…'
     try {
       const result = await window.bridge.downloadUpdate({
         url: state.update.downloadUrl,
         sha512: state.update.sha512,
         file: state.update.file,
       })
-      if (!result || !result.ok) throw new Error('下载未完成')
-      setStatus('下载完成，正在启动安装…', 'ok')
+      status.textContent = '下载完成，正在安装…'
       await window.bridge.installUpdate(result.path)
     } catch (error) {
-      setStatus(`下载失败：${error.message}`, 'err')
-      button.disabled = false
-      $('check').disabled = false
+      status.textContent = `下载失败：${error.message}`
     }
     return
   }
-
-  // 安卓端：把 APK 交给系统浏览器下载并安装（Android 不允许应用静默安装）
-  if (state.env === 'android') {
-    setStatus('已交给浏览器下载，下载完点安装即可', 'ok')
-    window.open(state.update.apkUrl, '_blank')
-    return
-  }
-
-  setStatus('网页端请到发布页手动下载', 'warn')
-  window.open(state.update.page, '_blank')
+  window.open(state.update.apkUrl, '_blank')
+  status.textContent = '已交给浏览器下载'
 }
 
-function bind() {
-  $('version').textContent = state.version
-  $('check').addEventListener('click', checkUpdate)
-  $('download').addEventListener('click', downloadAndInstall)
-  $('open').addEventListener('click', () => {
-    const page = (state.update && state.update.page) || `https://github.com/${SOURCE.owner}/${SOURCE.repo}/releases`
-    if (state.env === 'desktop') window.bridge.open(page)
-    else window.open(page, '_blank')
+/* ---------------- 其它页 ---------------- */
+
+function renderCalendar() {
+  $('#view').replaceChildren(el('div', 'placeholder', '月历视图将在 P3 实现'))
+}
+
+function renderRecords() {
+  $('#view').replaceChildren(el('div', 'placeholder', '每日日志与记录卡将在 P2 实现'))
+}
+
+function renderSettings() {
+  const view = $('#view')
+  view.replaceChildren()
+
+  const card = el('section', 'card')
+  const timeRow = el('label', 'field row')
+  timeRow.append(el('span', '', '晚间总结时间'))
+  const timeInput = document.createElement('input')
+  timeInput.type = 'time'
+  timeInput.value = state.settings.summaryTime
+  timeInput.addEventListener('change', async () => {
+    await store.saveSetting('summaryTime', timeInput.value)
+    state.settings.summaryTime = timeInput.value
   })
+  timeRow.appendChild(timeInput)
+  card.appendChild(timeRow)
 
-  if (state.env === 'desktop' && window.bridge.onProgress) {
-    window.bridge.onProgress(({ received, total }) => setProgress(received, total))
-  }
+  card.appendChild(el('div', 'field-label', '倒计时颜色'))
+  const legend = el('div', 'legend')
+  for (const [level, text] of [
+    ['calm', '> 48 小时'],
+    ['green', '48–12 小时'],
+    ['yellow', '12–4 小时'],
+    ['orange', '4–1 小时'],
+    ['red', '< 1 小时'],
+  ]) legend.appendChild(el('span', `chip chip-${level}`, text))
+  card.appendChild(legend)
+
+  view.appendChild(card)
+
+  const updateCard = el('section', 'card')
+  updateCard.appendChild(el('div', 'field-label', `版本 ${state.version}`))
+  const statusLine = el('div', 'muted', '尚未检查')
+  statusLine.id = 'update-status'
+  updateCard.appendChild(statusLine)
+
+  const actions = el('div', 'actions')
+  const checkBtn = el('button', 'primary', '检查更新')
+  checkBtn.type = 'button'
+  checkBtn.addEventListener('click', checkUpdate)
+  const installBtn = el('button', 'ghost', '下载并安装')
+  installBtn.type = 'button'
+  installBtn.addEventListener('click', installUpdate)
+  actions.append(checkBtn, installBtn)
+  updateCard.appendChild(actions)
+  view.appendChild(updateCard)
+
+  const backupCard = el('section', 'card')
+  const exportBtn = el('button', 'primary', '导出备份')
+  exportBtn.type = 'button'
+  exportBtn.addEventListener('click', async () => {
+    const payload = await store.exportAll()
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `lyapp-backup-${dateKey()}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  })
+  backupCard.appendChild(exportBtn)
+  view.appendChild(backupCard)
 }
 
-async function registerServiceWorker() {
-  if (!('serviceWorker' in navigator)) return
-  if (!location.protocol.startsWith('http')) return
+/* ---------------- 框架 ---------------- */
+
+function render() {
+  $('#today-date').textContent = state.date
+  const busyBtn = $('#busy-toggle')
+  const busy = Boolean(state.settings?.busy)
+  busyBtn.textContent = busy ? '繁忙中' : '空闲'
+  busyBtn.classList.toggle('busy', busy)
+
+  if (state.tab === 'today') renderToday()
+  else if (state.tab === 'calendar') renderCalendar()
+  else if (state.tab === 'records') renderRecords()
+  else renderSettings()
+}
+
+async function toggleBusy() {
+  const busy = !state.settings.busy
+  state.settings.busy = busy
+  await store.saveSetting('busy', busy)
+
+  const sessions = await store.getAll('sessions')
+  const open = sessions.filter((s) => s.kind === 'busy' && !s.end).sort((a, b) => b.start.localeCompare(a.start))[0]
+  if (busy) {
+    await store.put('sessions', { id: crypto.randomUUID(), kind: 'busy', start: new Date().toISOString(), end: null })
+  } else if (open) {
+    await store.put('sessions', { ...open, end: new Date().toISOString() })
+  }
+  render()
+}
+
+async function detectVersion() {
   try {
-    await navigator.serviceWorker.register('./sw.js')
+    if (window.bridge?.info) {
+      const info = await window.bridge.info()
+      state.env = 'desktop'
+      state.version = info.version
+      return
+    }
+    if (window.Capacitor?.isNativePlatform?.()) state.env = 'android'
+    const res = await fetch('./app-version.json', { cache: 'no-store' })
+    if (res.ok) state.version = (await res.json()).version
   } catch {
-    /* PWA 缓存失败不影响主体功能 */
+    /* 版本读不到不影响使用 */
   }
 }
 
-detectEnvironment()
-  .catch(() => {})
-  .finally(() => {
-    bind()
-    registerServiceWorker()
+async function boot() {
+  await detectVersion()
+  await reload()
+  render()
+
+  $$('.tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      state.tab = tab.dataset.tab
+      $$('.tab').forEach((t) => t.classList.toggle('active', t === tab))
+      render()
+    })
   })
+
+  $('#add-task').addEventListener('click', () => openEditor(null))
+  $('#busy-toggle').addEventListener('click', toggleBusy)
+  $('#cancel-task').addEventListener('click', () => $('#task-dialog').close())
+  $('#repeat-kind').addEventListener('change', syncRepeatFields)
+
+  $('#task-form').addEventListener('submit', async (event) => {
+    event.preventDefault()
+    const form = $('#task-form')
+    const data = readForm()
+    if (!data.title) return
+    const task = state.editing
+      ? { ...state.editing, ...data }
+      : { ...data, id: crypto.randomUUID(), createdAt: new Date().toISOString() }
+    await store.saveTask(task)
+    $('#task-dialog').close()
+    await reload()
+    render()
+  })
+
+  setInterval(() => {
+    if (state.tab === 'today') renderToday()
+  }, 30000)
+
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {})
+  }
+}
+
+boot().catch((error) => {
+  document.body.innerHTML = `<pre class="fatal">启动失败：${error.message}</pre>`
+})

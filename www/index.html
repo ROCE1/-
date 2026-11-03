@@ -3,47 +3,105 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>DSH App</title>
+    <title>LY App</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="theme-color" content="#0f1115" />
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <main class="shell">
-      <header class="head">
-        <h1 id="title">DSH App</h1>
-        <p class="sub" id="mode">正在检测运行环境…</p>
-      </header>
+    <header class="topbar">
+      <div class="topbar-main">
+        <span class="date" id="today-date">—</span>
+        <button class="status-pill" id="busy-toggle" type="button">空闲</button>
+      </div>
+      <div class="topbar-sub" id="today-summary">—</div>
+    </header>
 
-      <section class="card">
-        <div class="row">
-          <span class="label">当前版本</span>
-          <code id="version">—</code>
-        </div>
-        <div class="row">
-          <span class="label">更新状态</span>
-          <span id="update-status">尚未检查</span>
-        </div>
-        <div class="progress" id="progress-wrap" hidden>
-          <div class="bar"><div class="fill" id="progress-fill"></div></div>
-          <span class="label" id="progress-text">0%</span>
-        </div>
-        <div class="actions">
-          <button id="check">检查更新</button>
-          <button id="download" hidden>下载并安装</button>
-          <button id="open" class="ghost" hidden>打开发布页</button>
-        </div>
-      </section>
+    <main id="view" class="view"></main>
 
-      <section class="card placeholder">
-        <h2>功能位</h2>
-        <p>这里以后放你的应用本身。现在它用来验证三件事：能打包成 exe、能装进手机、能检测并安装更新。</p>
-      </section>
+    <nav class="tabbar">
+      <button class="tab active" data-tab="today">今日</button>
+      <button class="tab" data-tab="calendar">日历</button>
+      <button class="tab" data-tab="records">记录</button>
+      <button class="tab" data-tab="settings">设置</button>
+    </nav>
 
-      <footer class="foot">
-        <span>桌面：Electron · 安卓：Capacitor · 网页：PWA</span>
-      </footer>
-    </main>
-    <script src="./app.js"></script>
+    <button class="fab" id="add-task" type="button" aria-label="新建任务">＋</button>
+
+    <dialog id="task-dialog" class="sheet">
+      <form method="dialog" id="task-form">
+        <h2 id="dialog-title">新建任务</h2>
+
+        <label class="field">
+          <span>标题</span>
+          <input name="title" required maxlength="80" placeholder="比如：写完方案" />
+        </label>
+
+        <label class="field">
+          <span>类型</span>
+          <select name="type">
+            <option value="main">主线</option>
+            <option value="side">支线</option>
+            <option value="urgent">紧急</option>
+            <option value="fitness">健身</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>重复</span>
+          <select name="repeatKind" id="repeat-kind">
+            <option value="once">仅一次</option>
+            <option value="daily">每天（常挂）</option>
+            <option value="weekly">每周</option>
+            <option value="everyN">每 N 天</option>
+          </select>
+        </label>
+
+        <label class="field" data-repeat="once">
+          <span>日期</span>
+          <input type="date" name="onceDate" />
+        </label>
+
+        <label class="field" data-repeat="weekly" hidden>
+          <span>星期（可多选）</span>
+          <select name="weeklyDays" multiple size="3">
+            <option value="1">周一</option>
+            <option value="2">周二</option>
+            <option value="3">周三</option>
+            <option value="4">周四</option>
+            <option value="5">周五</option>
+            <option value="6">周六</option>
+            <option value="0">周日</option>
+          </select>
+        </label>
+
+        <label class="field" data-repeat="everyN" hidden>
+          <span>间隔天数</span>
+          <input type="number" name="everyN" min="1" value="3" />
+        </label>
+
+        <label class="field">
+          <span>截止时间（留空 = 不倒计时）</span>
+          <input type="datetime-local" name="deadline" />
+        </label>
+
+        <label class="field row">
+          <span>强提醒（横幅 + 倒计时 + 震动）</span>
+          <input type="checkbox" name="strong" />
+        </label>
+
+        <label class="field">
+          <span>备注</span>
+          <textarea name="notes" rows="2" maxlength="500"></textarea>
+        </label>
+
+        <div class="dialog-actions">
+          <button type="button" class="ghost" id="cancel-task">取消</button>
+          <button type="submit" class="primary">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="./app.js"></script>
   </body>
 </html>
