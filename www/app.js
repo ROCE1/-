@@ -640,9 +640,11 @@ function readForm() {
   } else repeat = { kind: 'daily' }
 
   const deadlineValue = form.elements.deadline.value
+  const type = form.elements.type.value
   return {
     title: form.elements.title.value.trim(),
-    type: form.elements.type.value,
+    // 老数据里可能还留着 fitness 类型（正常已被迁移），兜底成主线，避免任务“存了但看不见”
+    type: TASK_TYPES.includes(type) ? type : 'main',
     repeat,
     deadline: deadlineValue ? new Date(deadlineValue).toISOString() : null,
     strong: form.elements.strong.checked,
