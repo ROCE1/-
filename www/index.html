@@ -6,7 +6,7 @@
     <title>LY App</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="theme-color" content="#0f1115" />
-    <link rel="stylesheet" href="./style.css?v=0.4.1" />
+    <link rel="stylesheet" href="./style.css?v=0.5.0" />
   </head>
   <body>
     <header class="topbar">
@@ -21,12 +21,13 @@
 
     <nav class="tabbar">
       <button class="tab active" data-tab="today">今日</button>
+      <button class="tab" data-tab="fitness">健身</button>
       <button class="tab" data-tab="calendar">日历</button>
       <button class="tab" data-tab="records">记录</button>
       <button class="tab" data-tab="settings">设置</button>
     </nav>
 
-    <button class="fab" id="add-task" type="button" aria-label="新建任务">＋</button>
+    <button class="fab" id="add-task" type="button" aria-label="新建">＋</button>
 
     <dialog id="task-dialog" class="sheet">
       <form method="dialog" id="task-form">
@@ -43,7 +44,6 @@
             <option value="main">主线</option>
             <option value="side">支线</option>
             <option value="urgent">紧急</option>
-            <option value="fitness">健身</option>
           </select>
         </label>
 
@@ -102,6 +102,85 @@
       </form>
     </dialog>
 
+    <dialog id="fitness-dialog" class="sheet">
+      <form method="dialog" id="fitness-form">
+        <h2 id="fitness-dialog-title">新建健身项</h2>
+
+        <label class="field">
+          <span>内容</span>
+          <input name="name" required maxlength="60" placeholder="卧推 / 跑步" />
+        </label>
+
+        <label class="field">
+          <span>属于哪一天</span>
+          <select name="day" id="fitness-day">
+            <option value="strength">力量日（组 × 个）</option>
+            <option value="cardio">有氧日（时长 / 距离）</option>
+          </select>
+        </label>
+
+        <div class="field-row" data-fday="strength">
+          <label class="field">
+            <span>组数</span>
+            <input type="number" name="sets" min="1" max="99" inputmode="numeric" placeholder="4" />
+          </label>
+          <label class="field">
+            <span>每组个数</span>
+            <input type="number" name="reps" min="1" max="999" inputmode="numeric" placeholder="8" />
+          </label>
+        </div>
+
+        <div class="field-row" data-fday="cardio" hidden>
+          <label class="field">
+            <span>时长（分钟）</span>
+            <input type="number" name="minutes" min="1" max="999" inputmode="numeric" placeholder="30" />
+          </label>
+          <label class="field">
+            <span>距离（km，可空）</span>
+            <input type="number" name="km" min="0" max="999" step="0.1" inputmode="decimal" placeholder="5" />
+          </label>
+        </div>
+
+        <label class="field">
+          <span>重复</span>
+          <select name="repeatKind" id="fitness-repeat-kind">
+            <option value="daily">每天</option>
+            <option value="weekly">每周</option>
+            <option value="everyN">每 N 天</option>
+            <option value="once">仅一次</option>
+          </select>
+        </label>
+
+        <label class="field" data-frepeat="once" hidden>
+          <span>日期</span>
+          <input type="date" name="onceDate" />
+        </label>
+
+        <label class="field" data-frepeat="weekly" hidden>
+          <span>星期（可多选）</span>
+          <select name="weeklyDays" multiple size="3">
+            <option value="1">周一</option>
+            <option value="2">周二</option>
+            <option value="3">周三</option>
+            <option value="4">周四</option>
+            <option value="5">周五</option>
+            <option value="6">周六</option>
+            <option value="0">周日</option>
+          </select>
+        </label>
+
+        <label class="field" data-frepeat="everyN" hidden>
+          <span>间隔天数</span>
+          <input type="number" name="everyN" min="1" value="2" />
+        </label>
+
+        <div class="dialog-actions">
+          <button type="button" class="ghost" id="cancel-fitness">取消</button>
+          <button type="submit" class="primary">保存</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="summary-dialog" class="sheet">
       <form method="dialog" id="summary-form">
         <h2 id="summary-title">今日总结</h2>
@@ -143,6 +222,6 @@
       </form>
     </dialog>
 
-    <script type="module" src="./app.js?v=0.4.1"></script>
+    <script type="module" src="./app.js?v=0.5.0"></script>
   </body>
 </html>

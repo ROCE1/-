@@ -77,9 +77,10 @@ export function countdown(deadlineIso, now = new Date(), thresholds = DEFAULT_TH
   return { level, ms, hours, label: formatRemaining(ms), overdue: ms < 0 }
 }
 
-/** 紧急 → 主线 → 支线 → 健身，同级按截止时间升序（无截止的排后面）。 */
-const TYPE_ORDER = { urgent: 0, main: 1, side: 2, fitness: 3 }
-
+/**
+ * 把任务投影到某一天：紧急 / 主线 / 支线 / 健身 四组，同级按截止时间升序（无截止的排后面）。
+ * 健身已经拆成独立数据（见 fitness.js），这里保留 fitness 分组只是为了兼容迁移前的旧数据。
+ */
 export function projectDay(tasks, occurrenceDone, key) {
   const groups = { urgent: [], main: [], side: [], fitness: [] }
 
@@ -105,12 +106,8 @@ export function projectDay(tasks, occurrenceDone, key) {
   return groups
 }
 
-/** 健身是“整块提醒”，界面上合成一个卡片。 */
-export function fitnessSummary(groups) {
-  const items = groups.fitness || []
-  return { total: items.length, done: items.filter((item) => item.done).length, items }
-}
-
-export function sortTypes() {
-  return Object.keys(TYPE_ORDER).sort((a, b) => TYPE_ORDER[a] - TYPE_ORDER[b])
+/** 某天到底有没有任务（日历打点用）。 */
+export function hasAnyTask(tasks, occurrenceDone, key) {
+  const groups = projectDay(tasks, occurrenceDone, key)
+  return Object.keys(groups).some((type) => groups[type].length > 0)
 }

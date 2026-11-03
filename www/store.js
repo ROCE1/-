@@ -4,9 +4,10 @@
  * 后续要做云同步时，把这里换成"本地库 + 同步队列"即可，调用方不用改。
  */
 const DB_NAME = 'lyapp'
-const DB_VERSION = 1
+// v2：新增 fitness（健身项独立于任务）；老库升级时只补建缺的 store，数据不动。
+const DB_VERSION = 2
 
-const STORES = ['tasks', 'occurrences', 'settings', 'sessions', 'journal', 'cards', 'phrases']
+const STORES = ['tasks', 'occurrences', 'settings', 'sessions', 'journal', 'cards', 'phrases', 'fitness']
 
 let dbPromise = null
 
@@ -86,6 +87,8 @@ export const DEFAULT_SETTINGS = {
   summaryTime: '22:00',
   countdownThresholds: { green: 48, yellow: 12, orange: 4, red: 1 },
   fitnessReminders: [],
+  fitnessAnchor: '', // 健身轮换基准日，首次打开健身页时写入
+  fitnessOverride: null, // { date, day }：当天手动切换，跨天自动失效
   lockScreenEnabled: true,
   busy: false,
 }
@@ -116,7 +119,7 @@ export async function deleteTask(id) {
   await remove('tasks', id)
 }
 
-/** 完成状态按“任务 + 日期”存，常挂任务每天独立，互不串台。 */
+/** 完成状态按“任务 + 日期”存，常挂任务每天独立，互不串台。健身项共用同一张表。 */
 export async function setDone(taskId, date, done) {
   const key = `${taskId}@${date}`
   if (!done) {
@@ -133,10 +136,91 @@ export async function doneMapFor(date) {
   return map
 }
 
+/* ---------- 健身项 ---------- */
+
+export async function listFitnessItems() {
+  const items = await getAll('fitness')
+  return items.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
+}
+
+export async function saveFitnessItem(item) {
+  const record = {
+    ...item,
+    id: item.id || crypto.randomUUID(),
+    createdAt: item.createdAt || new Date().toISOString(),
+  }
+  await put('fitness', record)
+  return record
+}
+
+export async function deleteFitnessItem(id) {
+  await remove('fitness', id)
+}
+
+/**
+ * 0.4.x 之前健身是 tasks 里的一种任务类型，现在拆成独立数据。
+ * 迁移时保留原 id，这样 occurrences 里 `${id}@${date}` 的完成记录继续有效。
+ * 返回迁移条数（0 表示无需迁移），可反复调用。
+ */
+export async function migrateFitnessTasks() {
+  const tasks = await getAll('tasks')
+  const legacy = tasks.filter((task) => task.type === 'fitness')
+  for (const task of legacy) {
+    await put('fitness', {
+      id: task.id,
+      name: task.title,
+      day: 'strength',
+      sets: null,
+      reps: null,
+      minutes: null,
+      km: null,
+      repeat: task.repeat || { kind: 'daily' },
+      createdAt: task.createdAt || new Date().toISOString(),
+      migratedFrom: 'task',
+    })
+    await remove('tasks', task.id)
+  }
+  return legacy.length
+}
+
+/* ---------- 背景图 ---------- */
+
+/** 背景图存在 settings 的 background 记录里：{ blob, opacity, blur }。 */
+export async function loadBackground() {
+  const row = await getOne('settings', 'background')
+  const value = row?.value
+  if (!value?.blob) return null
+  return {
+    blob: value.blob,
+    opacity: typeof value.opacity === 'number' ? value.opacity : 0.45,
+    blur: typeof value.blur === 'number' ? value.blur : 0,
+  }
+}
+
+export async function saveBackground({ blob, opacity, blur }) {
+  await put('settings', {
+    key: 'background',
+    value: { blob, opacity, blur, updatedAt: new Date().toISOString() },
+  })
+}
+
+/** 只改两个滑杆，避免为了调 1% 透明度把几 MB 的图重写一遍。 */
+export async function saveBackgroundTuning(opacity, blur) {
+  const row = await getOne('settings', 'background')
+  if (!row?.value?.blob) return
+  await put('settings', { key: 'background', value: { ...row.value, opacity, blur } })
+}
+
+export async function clearBackground() {
+  await remove('settings', 'background')
+}
+
+/* ---------- 备份 ---------- */
+
 export async function exportAll() {
   const data = {}
   for (const name of STORES) data[name] = await getAll(name)
-  return { version: 1, exportedAt: new Date().toISOString(), data }
+  return { version: 2, exportedAt: new Date().toISOString(), data }
 }
 
 export async function importAll(payload) {

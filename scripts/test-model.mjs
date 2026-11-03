@@ -7,8 +7,11 @@ import {
   formatRemaining,
   countdown,
   projectDay,
+  hasAnyTask,
   DEFAULT_THRESHOLDS,
 } from '../www/model.js'
+import { dayKind, detailOf, fitnessLine, itemsForDay, rotationFor } from '../www/fitness.js'
+import { monthDays, monthMatrix, monthTitle, shiftMonth } from '../www/calendar.js'
 
 let passed = 0
 let failed = 0
@@ -80,6 +83,75 @@ const nextDay = projectDay(tasks, done, '2026-11-04')
 check('次日主线重现', nextDay.main.length, 1)
 check('次日完成状态独立', nextDay.main[0].done, false)
 check('次日一次性任务消失', nextDay.side.length, 0)
+
+// 日历打点：只有真的有任务的那天才算
+check('有任务的日子', hasAnyTask(tasks, {}, '2026-11-03'), true)
+check(
+  '没任务的日子',
+  hasAnyTask([{ id: 'x', title: '一次性', type: 'side', repeat: { kind: 'once', date: '2026-11-05' } }], {}, '2026-11-06'),
+  false,
+)
+
+/* ---------------- 健身轮换 ---------------- */
+check('基准日当天是力量日', rotationFor('2026-11-03', '2026-11-03'), 'strength')
+check('隔一天是有氧日', rotationFor('2026-11-03', '2026-11-04'), 'cardio')
+check('隔两天回到力量日', rotationFor('2026-11-03', '2026-11-05'), 'strength')
+check('基准日之前也交替', rotationFor('2026-11-03', '2026-11-02'), 'cardio')
+check('没有基准日默认力量日', rotationFor('', '2026-11-03'), 'strength')
+
+const settings = { fitnessAnchor: '2026-11-03', fitnessOverride: null }
+check('未手动切换时按轮换', dayKind(settings, '2026-11-04'), 'cardio')
+check(
+  '当天手动切换生效',
+  dayKind({ ...settings, fitnessOverride: { date: '2026-11-04', day: 'strength' } }, '2026-11-04'),
+  'strength',
+)
+check(
+  '手动切换不跨天',
+  dayKind({ ...settings, fitnessOverride: { date: '2026-11-04', day: 'strength' } }, '2026-11-05'),
+  'strength',
+)
+
+check('力量文案 组×个', detailOf({ day: 'strength', sets: 4, reps: 8 }), '4 组 × 8 个')
+check('力量文案 只有组数', detailOf({ day: 'strength', sets: 4 }), '4 组')
+check('有氧文案 时长+距离', detailOf({ day: 'cardio', minutes: 30, km: 5 }), '30 分钟 / 5 km')
+check('有氧文案 只有时长', detailOf({ day: 'cardio', minutes: 30 }), '30 分钟')
+check('有氧文案 只有距离', detailOf({ day: 'cardio', km: 3 }), '3 km')
+
+const fitnessItems = [
+  { id: 'f1', name: '卧推', day: 'strength', repeat: { kind: 'daily' }, createdAt: '2026-11-01' },
+  { id: 'f2', name: '引体', day: 'strength', repeat: { kind: 'weekly', days: [5] }, createdAt: '2026-11-02' },
+  { id: 'f3', name: '跑步', day: 'cardio', repeat: { kind: 'daily' }, createdAt: '2026-11-03' },
+]
+check('力量日只出力量项', itemsForDay(fitnessItems, 'strength', '2026-11-03').map((i) => i.name), ['卧推'])
+check('周五能看到引体', itemsForDay(fitnessItems, 'strength', '2026-11-06').map((i) => i.name), ['卧推', '引体'])
+check('有氧日只有跑步', itemsForDay(fitnessItems, 'cardio', '2026-11-03').map((i) => i.name), ['跑步'])
+check('周三看不到周五的引体', itemsForDay(fitnessItems, 'strength', '2026-11-04').map((i) => i.name), ['卧推'])
+check(
+  '通知行带完成进度',
+  fitnessLine(fitnessItems, 'cardio', '2026-11-03', { 'f3@2026-11-03': true }),
+  '健身 有氧日 1/1',
+)
+check('没有健身项就没有通知行', fitnessLine([], 'strength', '2026-11-03', {}), null)
+
+/* ---------------- 月历 ---------------- */
+check('2026-11 有 30 天', monthDays(2026, 11).length, 30)
+check('2026-02 有 28 天', monthDays(2026, 2).length, 28)
+check('2026-11-01 是周日', weekdayOf('2026-11-01'), 0)
+const nov2026 = monthMatrix(2026, 11, '2026-11-03')
+check('11 月需要 6 行', nov2026.length, 6)
+check('周一开头', nov2026[0][0].key, '2026-10-26')
+check('1 号在第 1 行最后一格', nov2026[0][6].key, '2026-11-01')
+check('1 号属于本月', nov2026[0][6].inMonth, true)
+check('今天被标出来', nov2026.some((week) => week.some((cell) => cell.today)), true)
+check(
+  '所有格子都是 7 天且 key 合法',
+  nov2026.every((week) => week.length === 7 && week.every((cell) => /^\d{4}-\d{2}-\d{2}$/.test(cell.key))),
+  true,
+)
+check('翻月 12 月 → 次年 1 月', shiftMonth({ year: 2026, month: 12 }, 1), { year: 2027, month: 1 })
+check('翻月 1 月 → 上一年 12 月', shiftMonth({ year: 2026, month: 1 }, -1), { year: 2025, month: 12 })
+check('月份标题', monthTitle(2026, 11), '2026 年 11 月')
 
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed === 0 ? 0 : 1)

@@ -5,12 +5,22 @@
 ## 目录
 
 ```
-www/                  唯一的前端源（HTML/CSS/JS，无构建步骤）
+www/                  唯一的前端源（HTML/CSS/JS 模块，无构建步骤）
+  index.html          五个页签 + 四个弹窗
+  app.js              界面与交互（唯一控制器，改功能基本都在这）
+  model.js            任务/重复规则/倒计时的纯逻辑
+  fitness.js          健身轮换（力量日↔有氧日）与文案的纯逻辑
+  calendar.js         月历网格的纯逻辑
+  store.js            IndexedDB（v2）读写与领域封装
+  native.js           安卓原生插件封装（浏览器里全是空实现）
+  themes.js           皮肤注册表（颜色全走 CSS 变量）
+  sw.js               0.1.x PWA service worker 的“墓碑”，只负责注销自己
 electron/             桌面壳：main.js / preload.js / update.js
 app.config.json       GitHub 仓库坐标（更新检查读它）
 capacitor.config.json 安卓壳配置（appId 在这里改）
 electron-builder.yml  Windows 打包配置
-scripts/              一次性工具（图标生成等）
+scripts/              一次性工具（图标、清单、版本）与测试
+docs/                 产品规格（PLAN-tasks）与施工计划（PLAN-v1）
 ```
 
 ## 常用命令
@@ -23,6 +33,8 @@ scripts/              一次性工具（图标生成等）
 | 同步前端到安卓 | `pnpm android:sync` |
 | 打 APK | `pnpm android:apk` → `android/app/build/outputs/apk/release/` |
 | 本地起网页（PWA 调试） | `python -m http.server 8080 --directory www` |
+| 纯逻辑测试 | `node scripts/test-model.mjs` |
+| 界面冒烟测试 | `node scripts/smoke.mjs`（要 Edge/Chrome，且必须完整权限） |
 
 ## 环境（本机现状）
 
@@ -117,6 +129,21 @@ core.sshCommand  ssh -i D:/dev/.ssh/id_ed25519_dshapp -o IdentitiesOnly=yes -o U
 - 每次发版：改版本 → 构建 → 更新 `CHANGELOG.md` → 传 Release。
 - 前端不做复杂构建（没有 Vite/webpack）；真需要框架时再引入，并同步改 `webDir`。
 - `app.config.json` 里的 owner/repo 为空时，更新检查会明确返回“未配置”，不会假装成功。
+
+## 前端结构与数据（0.5.0 起）
+
+- **纯逻辑与界面分开**：`model.js` / `fitness.js` / `calendar.js` 不碰 DOM、不碰存储，所以
+  `scripts/test-model.mjs` 能直接用 node 跑；改这几块时先补测试再看界面。
+- **IndexedDB `lyapp` v2**，stores：`tasks` `occurrences` `settings` `sessions` `journal` `cards` `phrases` `fitness`。
+  升级只补建缺的 store（`onupgradeneeded` 里判存在），老数据不动。
+- **完成状态只有一张表** `occurrences`，key = `${id}@${date}`；任务和健身项共用，按天独立。
+- **settings 是一行一个键** `{ key, value }`。背景图存在 `key='background'`，value = `{ blob, opacity, blur }`
+  （图先缩到长边 ≤1600px 再存 blob，不要存原图）。
+- **健身轮换**：`settings.fitnessAnchor`（基准日）+ `settings.fitnessOverride`（`{date, day}`，只在当天有效）。
+  力量日记 `sets/reps`，有氧日记 `minutes/km`，`repeat` 复用任务的重复规则。
+- **数据迁移**：`store.migrateFitnessTasks()` 在启动时把旧 `type='fitness'` 的任务搬进 `fitness`，
+  id 不变，所以历史完成记录（`${id}@${date}`）继续有效。
+- **改静态资源要同步改 `index.html` 里的 `?v=`**，否则 WebView 可能吃旧缓存。
 
 ## 安卓签名与更新（已跑通）
 
