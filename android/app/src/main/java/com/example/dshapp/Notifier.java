@@ -12,9 +12,11 @@ import android.os.Build;
  * 通知与闹钟的统一构造入口：频道、常驻面板、提醒通知都从这里出。
  */
 final class Notifier {
-    static final String CHANNEL_ONGOING = "ongoing";
-    static final String CHANNEL_STRONG = "strong";
-    static final String CHANNEL_SOFT = "soft";
+    // 频道 id 带版本号：Android 不允许修改已创建频道的重要性，
+    // 老用户升级后必须换新 id，否则锁屏可见性改了也白改。
+    static final String CHANNEL_ONGOING = "ongoing_v2";
+    static final String CHANNEL_STRONG = "strong_v2";
+    static final String CHANNEL_SOFT = "soft_v2";
 
     static final int ID_ONGOING = 1001;
     static final int ID_RING = 1002;
