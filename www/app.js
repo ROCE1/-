@@ -381,8 +381,20 @@ async function boot() {
     if (state.tab === 'today') renderToday()
   }, 30000)
 
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {})
+  // 清理 0.1.x 遗留的 PWA service worker：
+  // 它会把旧版的 index.html/style.css/app.js 缓存下来，
+  // 升级后就会出现「新界面 + 旧脚本」→ 按钮全部失灵。原生 App 不需要 SW。
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker
+      .getRegistrations?.()
+      .then((regs) => Promise.all(regs.map((reg) => reg.unregister())))
+      .catch(() => {})
+  }
+  if (window.caches && typeof caches.keys === 'function') {
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+      .catch(() => {})
   }
 }
 
