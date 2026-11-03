@@ -187,6 +187,27 @@ async function main() {
     check('页面没有启动失败', !bodyText.includes('启动失败'), bodyText.slice(0, 120))
     check('今日页有分区', bodyText.includes('紧急') && bodyText.includes('主线') && bodyText.includes('支线'))
 
+    // 新建一条主线任务
+    await evaluate(`document.querySelector('#add-task').click()`)
+    await waitFor(() => evaluate(`document.querySelector('#task-dialog')?.open === true`), { label: '任务弹窗' })
+    await evaluate(`
+      document.querySelector('#task-form [name="title"]').value = '冒烟任务'
+      document.querySelector('#task-form [name="type"]').value = 'main'
+      document.querySelector('#task-form').requestSubmit()
+    `)
+    await waitFor(() => evaluate(`document.body.innerText.includes('冒烟任务')`), { label: '任务写入并显示' })
+    check('新建任务出现在今日列表', true)
+
+    // 勾选任务完成
+    await evaluate(`
+      Array.from(document.querySelectorAll('#view .task'))
+        .find((row) => row.innerText.includes('冒烟任务'))
+        .querySelector('.check')
+        .click()
+    `)
+    await waitFor(() => evaluate(`document.body.innerText.includes('已完成 1 / 1')`), { label: '任务完成计数' })
+    check('任务勾选后计数更新', true)
+
     // 健身页：轮换页签 + 新建一条力量项
     await evaluate(`document.querySelector('[data-tab="fitness"]').click()`)
     await waitFor(() => evaluate(`!!document.querySelector('.segmented')`), { label: '健身页' })
