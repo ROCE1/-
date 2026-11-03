@@ -72,7 +72,48 @@ async function refreshNotifications() {
   })
 
   await native.cancelAll()
-  const now = Date.now()
+  const nowMs = Date.now()
+  const now = new Date()
+
+  // 每日总结：默认 22:00，过点则排到明天
+  const [summaryHour, summaryMinute] = String(state.settings?.summaryTime || '22:00').split(':').map(Number)
+  const summaryAt = new Date(now)
+  summaryAt.setHours(summaryHour || 22, summaryMinute || 0, 0, 0)
+  if (summaryAt.getTime() <= nowMs) summaryAt.setDate(summaryAt.getDate() + 1)
+  await native.schedule({
+    id: 'summary',
+    at: summaryAt.getTime(),
+    title: '今日总结',
+    body: '花两分钟记一下今天，顺便安排明天',
+    strong: false,
+  })
+
+  // 健身整块提醒：最多 3 个时间点
+  const fitnessReminders = state.settings?.fitnessReminders || []
+  for (let index = 0; index < fitnessReminders.length; index += 1) {
+    const reminder = fitnessReminders[index]
+    if (!reminder?.time) continue
+    const [hour, minute] = reminder.time.split(':').map(Number)
+    let at
+    if (reminder.repeat === 'once') {
+      if (!reminder.date) continue
+      at = new Date(`${reminder.date}T00:00:00`)
+      at.setHours(hour || 0, minute || 0, 0, 0)
+      if (at.getTime() <= nowMs) continue
+    } else {
+      at = new Date(now)
+      at.setHours(hour || 0, minute || 0, 0, 0)
+      if (at.getTime() <= nowMs) at.setDate(at.getDate() + 1)
+    }
+    await native.schedule({
+      id: `fitness:${index}`,
+      at: at.getTime(),
+      title: '健身时间',
+      body: '该动一动了（繁忙时会跳过）',
+      strong: false,
+    })
+  }
+
   for (const type of ['urgent', 'main', 'side']) {
     for (const entry of groups[type]) {
       if (entry.done || !entry.task.deadline) continue
@@ -80,7 +121,7 @@ async function refreshNotifications() {
       if (Number.isNaN(due)) continue
       const lead = due - LEAD_MINUTES * 60000
       const strong = Boolean(entry.task.strong)
-      if (lead > now) {
+      if (lead > nowMs) {
         await native.schedule({
           id: `${entry.task.id}:lead`,
           at: lead,
@@ -89,7 +130,7 @@ async function refreshNotifications() {
           strong,
         })
       }
-      if (due > now && strong) {
+      if (due > nowMs && strong) {
         await native.schedule({
           id: `${entry.task.id}:due`,
           at: due,
@@ -111,8 +152,65 @@ function chipFor(task) {
   return el('span', `chip chip-${info.level}`, info.label)
 }
 
+/** 左滑露出「删除」，右滑收回。 */
+function attachSwipe(row) {
+  let startX = 0
+  let startY = 0
+  let dx = 0
+  let tracking = false
+  let opened = false
+
+  row.addEventListener(
+    'touchstart',
+    (event) => {
+      const touch = event.touches[0]
+      startX = touch.clientX
+      startY = touch.clientY
+      dx = opened ? -96 : 0
+      tracking = true
+    },
+    { passive: true },
+  )
+
+  row.addEventListener(
+    'touchmove',
+    (event) => {
+      if (!tracking) return
+      const touch = event.touches[0]
+      const moveX = touch.clientX - startX + (opened ? -96 : 0)
+      const moveY = touch.clientY - startY
+      if (Math.abs(moveY) > Math.abs(moveX) + 4) {
+        tracking = false
+        return
+      }
+      dx = Math.max(-96, Math.min(0, moveX))
+      row.style.transform = `translateX(${dx}px)`
+    },
+    { passive: true },
+  )
+
+  row.addEventListener('touchend', () => {
+    if (!tracking) return
+    tracking = false
+    opened = dx < -48
+    row.style.transform = `translateX(${opened ? -96 : 0}px)`
+  })
+}
+
 function taskRow(entry) {
   const { task, done } = entry
+  const wrap = el('div', 'task-wrap')
+
+  const remove = el('button', 'task-delete', '删除')
+  remove.type = 'button'
+  remove.addEventListener('click', async (event) => {
+    event.stopPropagation()
+    await store.deleteTask(task.id)
+    await reload()
+    render()
+    await refreshNotifications()
+  })
+
   const row = el('div', `task${done ? ' done' : ''}`)
 
   const checkbox = el('button', 'check')
@@ -138,7 +236,10 @@ function taskRow(entry) {
 
   row.append(checkbox, body)
   row.addEventListener('click', () => openEditor(task))
-  return row
+  attachSwipe(row)
+
+  wrap.append(remove, row)
+  return wrap
 }
 
 function section(type, entries) {
@@ -296,12 +397,70 @@ async function installUpdate() {
 
 /* ---------------- 其它页 ---------------- */
 
-function renderCalendar() {
-  $('#view').replaceChildren(el('div', 'placeholder', '月历视图将在 P3 实现'))
+async function renderRecords() {
+  const view = $('#view')
+  view.replaceChildren()
+  const cards = (await store.getAll('cards')).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+
+  const head = el('div', 'field-label', `记录卡 · ${cards.length}`)
+  view.appendChild(head)
+
+  if (cards.length === 0) view.appendChild(el('div', 'placeholder', '还没有记录卡。它和每日日志不同：随时写、可多条。'))
+
+  for (const card of cards) {
+    const item = el('section', 'card')
+    const top = el('div', 'card-head')
+    top.appendChild(el('div', 'card-title', card.title || '未命名'))
+    const del = el('button', 'link-danger', '删除')
+    del.type = 'button'
+    del.addEventListener('click', async () => {
+      await store.remove('cards', card.id)
+      await renderRecords()
+    })
+    top.appendChild(del)
+    item.appendChild(top)
+    const when = new Date(card.createdAt).toLocaleString('zh-CN')
+    item.appendChild(el('div', 'muted', when))
+    item.appendChild(el('div', 'card-body', card.body))
+    if (card.tags?.length) item.appendChild(el('div', 'muted', card.tags.map((tag) => `#${tag}`).join(' ')))
+    view.appendChild(item)
+  }
+
+  const add = el('button', 'primary', '写一张记录卡')
+  add.type = 'button'
+  add.addEventListener('click', () => {
+    $('#card-form').reset()
+    $('#card-dialog').showModal()
+  })
+  view.appendChild(add)
 }
 
-function renderRecords() {
-  $('#view').replaceChildren(el('div', 'placeholder', '每日日志与记录卡将在 P2 实现'))
+/* ---------------- 每日总结 ---------------- */
+
+function summaryDue() {
+  const [hour, minute] = String(state.settings?.summaryTime || '22:00').split(':').map(Number)
+  const now = new Date()
+  return now.getHours() * 60 + now.getMinutes() >= hour * 60 + minute
+}
+
+async function openSummary() {
+  const groups = projectDay(state.tasks, state.done, state.date)
+  const doneList = []
+  for (const type of TYPE_ORDER) {
+    for (const entry of groups[type]) if (entry.done) doneList.push(entry.task.title)
+  }
+  $('#summary-title').textContent = `${state.date} 总结`
+  $('#summary-done').textContent = doneList.length ? `已完成 ${doneList.length} 项：${doneList.join('、')}` : '今天没有完成任何任务'
+
+  const existing = await store.getOne('journal', state.date)
+  const form = $('#summary-form')
+  form.elements.summary.value = existing?.summary || ''
+  form.elements.plan.value = existing?.planFree || ''
+  $('#summary-dialog').showModal()
+}
+
+function renderCalendar() {
+  $('#view').replaceChildren(el('div', 'placeholder', '月历视图将在后续版本实现'))
 }
 
 function renderSettings() {
@@ -392,6 +551,59 @@ function renderSettings() {
     view.appendChild(notifyCard)
   }
 
+  // 健身提醒：整块提醒，最多 3 个时间点，每个可选每天/一次性
+  const fitnessCard = el('section', 'card')
+  fitnessCard.appendChild(el('div', 'field-label', '健身提醒（整块，最多 3 个）'))
+  const rows = []
+  const existing = [...(state.settings.fitnessReminders || [])]
+  for (let index = 0; index < 3; index += 1) {
+    const reminder = existing[index] || { time: '', repeat: 'daily', date: '' }
+    const row = el('div', 'reminder-row')
+    const time = document.createElement('input')
+    time.type = 'time'
+    time.value = reminder.time || ''
+    const repeat = document.createElement('select')
+    for (const [value, label] of [['daily', '每天'], ['once', '一次性']]) {
+      const option = document.createElement('option')
+      option.value = value
+      option.textContent = label
+      if (reminder.repeat === value) option.selected = true
+      repeat.appendChild(option)
+    }
+    const date = document.createElement('input')
+    date.type = 'date'
+    date.value = reminder.date || ''
+    date.hidden = reminder.repeat !== 'once'
+    repeat.addEventListener('change', () => {
+      date.hidden = repeat.value !== 'once'
+    })
+    row.append(time, repeat, date)
+    rows.push({ time, repeat, date })
+    fitnessCard.appendChild(row)
+  }
+  const saveFitness = el('button', 'primary', '保存健身提醒')
+  saveFitness.type = 'button'
+  saveFitness.addEventListener('click', async () => {
+    const next = []
+    for (const row of rows) {
+      if (!row.time.value) continue
+      next.push({
+        time: row.time.value,
+        repeat: row.repeat.value,
+        date: row.repeat.value === 'once' ? row.date.value : '',
+      })
+    }
+    state.settings.fitnessReminders = next.slice(0, 3)
+    await store.saveSetting('fitnessReminders', state.settings.fitnessReminders)
+    await refreshNotifications()
+    saveFitness.textContent = '已保存'
+    setTimeout(() => {
+      saveFitness.textContent = '保存健身提醒'
+    }, 1500)
+  })
+  fitnessCard.appendChild(saveFitness)
+  view.appendChild(fitnessCard)
+
   const updateCard = el('section', 'card')
   updateCard.appendChild(el('div', 'field-label', `版本 ${state.version}`))
   const statusLine = el('div', 'muted', '尚未检查')
@@ -480,6 +692,12 @@ async function boot() {
   render()
   await refreshNotifications()
 
+  // 到点且今天还没写总结 → 自动弹出
+  if (summaryDue()) {
+    const entry = await store.getOne('journal', state.date)
+    if (!entry) await openSummary()
+  }
+
   $$('.tab').forEach((tab) => {
     tab.addEventListener('click', () => {
       state.tab = tab.dataset.tab
@@ -492,6 +710,39 @@ async function boot() {
   $('#busy-toggle').addEventListener('click', toggleBusy)
   $('#cancel-task').addEventListener('click', () => $('#task-dialog').close())
   $('#repeat-kind').addEventListener('change', syncRepeatFields)
+
+  $('#summary-later').addEventListener('click', () => $('#summary-dialog').close())
+  $('#summary-form').addEventListener('submit', async (event) => {
+    event.preventDefault()
+    const form = $('#summary-form')
+    await store.put('journal', {
+      date: state.date,
+      summary: form.elements.summary.value.trim(),
+      planFree: form.elements.plan.value.trim(),
+      planTaskIds: [],
+    })
+    $('#summary-dialog').close()
+  })
+
+  $('#card-cancel').addEventListener('click', () => $('#card-dialog').close())
+  $('#card-form').addEventListener('submit', async (event) => {
+    event.preventDefault()
+    const form = $('#card-form')
+    const body = form.elements.body.value.trim()
+    if (!body) return
+    await store.put('cards', {
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      title: form.elements.title.value.trim(),
+      body,
+      tags: form.elements.tags.value
+        .split(/[,，\s]+/)
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    })
+    $('#card-dialog').close()
+    if (state.tab === 'records') await renderRecords()
+  })
 
   $('#task-form').addEventListener('submit', async (event) => {
     event.preventDefault()

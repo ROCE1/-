@@ -34,6 +34,16 @@
                 android:value="task reminder panel" />
         </service>
 
+        <!-- 强提醒的持续震动（点「停止提醒」才停） -->
+        <service
+            android:name=".AlarmRingService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="task reminder ringing" />
+        </service>
+
         <!-- 闹钟到点的落点 -->
         <receiver
             android:name=".AlarmReceiver"
