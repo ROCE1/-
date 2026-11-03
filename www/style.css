@@ -169,6 +169,9 @@ button.ghost {
 body {
   display: grid;
   grid-template-rows: auto 1fr auto;
+  /* 必须显式重置：旧样式里的 justify-content:center 在 grid 下会把整列压窄居中 */
+  justify-content: stretch;
+  align-items: stretch;
   height: 100dvh;
   margin: 0;
   padding: 0;

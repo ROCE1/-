@@ -1,5 +1,9 @@
 # 更新记录
 
+## 0.2.2 — 2026-11-03
+
+- 修复布局被压成窄列：旧样式里的 `justify-content: center` 在 grid 容器下会压缩列宽，已显式重置
+
 ## 0.2.1 — 2026-11-03
 
 - 移除 PWA service worker 并清理其缓存：0.1.x 的 SW 会把旧 index.html/style.css/app.js 缓存下来，导致升级后「界面是新的、脚本是旧的」，按钮全部失灵
