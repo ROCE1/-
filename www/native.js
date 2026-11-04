@@ -38,17 +38,18 @@ export async function syncState({
 /**
  * 通知栏上的「繁忙 / 空闲」按钮是原生直接处理的，这里把用户那次点击取回来，
  * 由前端补写工作时段（sessions 在 IndexedDB 里，只有前端能写）。
- * 返回 { busy, at } 或 null；取过一次就清掉。
+ * 返回按时间排列的 [{ busy, at }]（可能是空数组）；取过一次就清空。
  */
 export async function consumeBusyToggle() {
   const api = plugin()
-  if (!api) return null
+  if (!api) return []
   try {
     const result = await api.consumeBusyToggle()
-    if (!result || typeof result.busy !== 'boolean') return null
-    return { busy: result.busy, at: Number(result.at) || Date.now() }
+    const items = result?.items
+    if (!Array.isArray(items) || items.length === 0) return []
+    return items.map((item) => ({ busy: Boolean(item.busy), at: Number(item.at) || Date.now() }))
   } catch {
-    return null
+    return []
   }
 }
 

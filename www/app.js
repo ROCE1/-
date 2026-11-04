@@ -1597,7 +1597,12 @@ function rerender() {
  * atMs 用来支持“在通知栏上点的按钮”：那时的时刻才是真正的切换点，
  * 哪怕几分钟后才打开 App，工作时段也能按真实时间落库。
  */
-async function applyBusy(busy, atMs = Date.now()) {
+/**
+ * 只改“繁忙状态 + 工作时段”，不重绘 —— 批量补账时用。
+ * atMs 用来支持“在通知栏上点的按钮”：那时的时刻才是真正的切换点，
+ * 哪怕几分钟后 / 几天后才打开 App，工作时段也能按真实时间落库。
+ */
+async function writeBusyState(busy, atMs = Date.now()) {
   state.settings.busy = busy
   await store.saveSetting('busy', busy)
 
@@ -1611,6 +1616,10 @@ async function applyBusy(busy, atMs = Date.now()) {
     const endMs = Math.max(atMs, Number.isFinite(startMs) ? startMs + 1000 : atMs)
     await store.put('sessions', { ...open, end: new Date(endMs).toISOString() })
   }
+}
+
+async function applyBusy(busy, atMs = Date.now()) {
+  await writeBusyState(busy, atMs)
   await render()
   await refreshNotifications()
 }
@@ -1619,12 +1628,25 @@ async function toggleBusy() {
   await applyBusy(!Boolean(state.settings.busy))
 }
 
-/** 把通知栏上那次点击取回来，跟本地状态对齐。 */
+/**
+ * 把通知栏上的点击按顺序补记回来。
+ * 可能攒了好几次（比如“繁忙 → 空闲”都没打开 App），所以要逐条回放，
+ * 每条的切换时刻都用原生记下的那个时间。
+ */
 async function syncBusyFromNotification() {
   const pending = await native.consumeBusyToggle()
-  if (!pending) return
-  if (Boolean(state.settings?.busy) === pending.busy) return
-  await applyBusy(pending.busy, pending.at)
+  if (!Array.isArray(pending) || pending.length === 0) return
+
+  let changed = false
+  for (const item of pending) {
+    if (Boolean(state.settings?.busy) === item.busy) continue
+    await writeBusyState(item.busy, item.at)
+    changed = true
+  }
+  if (!changed) return
+
+  await render()
+  await refreshNotifications()
 }
 
 async function detectVersion() {

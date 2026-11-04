@@ -21,7 +21,7 @@ public class BusyToggleReceiver extends BroadcastReceiver {
         boolean busy = !ReminderStore.isBusy(context);
         long at = System.currentTimeMillis();
         ReminderStore.setBusy(context, busy);
-        ReminderStore.setPendingBusy(context, busy, at);
+        ReminderStore.appendPendingBusy(context, busy, at);
 
         int done = ReminderStore.progressDone(context);
         int total = ReminderStore.progressTotal(context);

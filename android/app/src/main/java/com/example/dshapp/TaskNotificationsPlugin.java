@@ -8,6 +8,7 @@ import android.os.Build;
 import android.os.PowerManager;
 import android.provider.Settings;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -61,17 +62,24 @@ public class TaskNotificationsPlugin extends Plugin {
         call.resolve();
     }
 
-    /** 前端取走通知栏上那次「繁忙 / 空闲」点击（取一次就清空）。 */
+    /** 前端取走通知栏上那几次「繁忙 / 空闲」点击（按顺序返回，取一次就清空）。 */
     @PluginMethod
     public void consumeBusyToggle(PluginCall call) {
-        if (!ReminderStore.hasPendingBusy(getContext())) {
+        java.util.List<JSONObject> pending = ReminderStore.pendingBusyList(getContext());
+        if (pending.isEmpty()) {
             call.resolve();
             return;
         }
-        JSObject result = new JSObject();
-        result.put("busy", ReminderStore.pendingBusy(getContext()));
-        result.put("at", ReminderStore.pendingBusyAt(getContext()));
+        JSArray items = new JSArray();
+        for (JSONObject record : pending) {
+            JSObject entry = new JSObject();
+            entry.put("busy", record.optBoolean("busy", false));
+            entry.put("at", record.optLong("at", 0L));
+            items.put(entry);
+        }
         ReminderStore.clearPendingBusy(getContext());
+        JSObject result = new JSObject();
+        result.put("items", items);
         call.resolve(result);
     }
 

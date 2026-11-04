@@ -68,27 +68,56 @@ final class ReminderStore {
     }
 
     /**
-     * 通知栏上的「繁忙 / 空闲」是原生先接的：这里记一笔“待补账”，
-     * 等前端下次启动/回到前台时取走，用它去写工作时段（sessions 只有前端能写）。
+     * 通知栏上的「繁忙 / 空闲」是原生先接的：这里按顺序记下每一次点击，
+     * 等前端下次启动/回到前台时一次性取走，用它去写工作时段（sessions 只有前端能写）。
+     *
+     * 必须用队列而不是单值：用户可能“繁忙 → 空闲”连点两次都不打开 App，
+     * 只留最后一次的话第一段工时就被吞了。
      */
-    static void setPendingBusy(Context context, boolean busy, long at) {
-        prefs(context).edit().putBoolean(KEY_PENDING_BUSY, busy).putLong(KEY_PENDING_AT, at).apply();
+    static synchronized void appendPendingBusy(Context context, boolean busy, long at) {
+        JSONArray array = readPending(context);
+        JSONObject item = new JSONObject();
+        try {
+            item.put("busy", busy);
+            item.put("at", at);
+            array.put(item);
+        } catch (JSONException ignored) {
+            return;
+        }
+        // 队列最多留 50 条，防止异常情况下无限增长
+        if (array.length() > 50) {
+            JSONArray trimmed = new JSONArray();
+            for (int i = array.length() - 50; i < array.length(); i++) trimmed.put(array.opt(i));
+            array = trimmed;
+        }
+        prefs(context).edit().putString(KEY_PENDING_BUSY, array.toString()).apply();
     }
 
-    static boolean hasPendingBusy(Context context) {
-        return prefs(context).contains(KEY_PENDING_BUSY);
+    static synchronized boolean hasPendingBusy(Context context) {
+        return readPending(context).length() > 0;
     }
 
-    static boolean pendingBusy(Context context) {
-        return prefs(context).getBoolean(KEY_PENDING_BUSY, false);
-    }
-
-    static long pendingBusyAt(Context context) {
-        return prefs(context).getLong(KEY_PENDING_AT, 0L);
+    static synchronized List<JSONObject> pendingBusyList(Context context) {
+        JSONArray array = readPending(context);
+        List<JSONObject> list = new ArrayList<>();
+        for (int i = 0; i < array.length(); i++) {
+            JSONObject item = array.optJSONObject(i);
+            if (item != null) list.add(item);
+        }
+        return list;
     }
 
     static void clearPendingBusy(Context context) {
         prefs(context).edit().remove(KEY_PENDING_BUSY).remove(KEY_PENDING_AT).apply();
+    }
+
+    private static JSONArray readPending(Context context) {
+        String raw = prefs(context).getString(KEY_PENDING_BUSY, "[]");
+        try {
+            return new JSONArray(raw);
+        } catch (JSONException error) {
+            return new JSONArray();
+        }
     }
 
     /** 桌面小组件外观：颜色 #rrggbb + 不透明度 0..1。 */
