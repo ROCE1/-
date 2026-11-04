@@ -12,6 +12,7 @@ import {
   leadMinutesFor,
   escalatesToUrgent,
   nearestDeadline,
+  dayLines,
   DEFAULT_THRESHOLDS,
 } from '../www/model.js'
 import { dayKind, detailOf, fitnessLine, itemsForDay, rotationFor } from '../www/fitness.js'
@@ -290,6 +291,22 @@ const nearest = nearestDeadline(notifyGroups)
 check('通知挑最近的一条', nearest?.entry.task.id, 's1')
 check('主线不进通知候选', nearest?.type, 'side')
 check('没有带截止的任务时返回 null', nearestDeadline({ urgent: [], side: [], daily: [] }), null)
+
+/* ---------------- 小组件清单（顺序与 App 一致） ---------------- */
+const widgetGroups = {
+  urgent: [{ task: { id: 'w1', title: '交报告' }, done: false }],
+  side: [{ task: { id: 'w2', title: '买牛奶' }, done: true }],
+  daily: [{ task: { id: 'w3', title: '喝水' }, done: false }],
+  main: [{ task: { id: 'w4', title: '学英语' }, done: false }],
+}
+check('小组件清单按 紧急→支线→日常→主线', dayLines(widgetGroups), [
+  '紧急 交报告',
+  '支线 买牛奶 ✓',
+  '日常 喝水',
+  '主线 学英语',
+])
+check('小组件清单可截断', dayLines(widgetGroups, { limit: 2 }), ['紧急 交报告', '支线 买牛奶 ✓'])
+check('没有任务时清单为空', dayLines({ urgent: [], side: [], daily: [], main: [] }), [])
 
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed === 0 ? 0 : 1)

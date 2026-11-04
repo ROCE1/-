@@ -1,12 +1,14 @@
 import {
   dateKey,
   countdown,
+  dayLines,
   hasAnyTask,
   leadMinutesFor,
   moveInList,
   nearestDeadline,
   projectDay,
   weekdayOf,
+  TYPE_LABELS,
   TYPE_ORDER,
 } from './model.js'
 import * as store from './store.js'
@@ -20,7 +22,7 @@ const SOURCE = { owner: 'ROCE1', repo: '-', mirror: 'https://gh-proxy.com/' }
 const WEEK_LABEL = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 // 紧急 → 支线 → 日常 → 主线（界面和通知都用这个顺序）
 const TASK_TYPES = TYPE_ORDER
-const TYPE_LABEL = { urgent: '紧急', side: '支线', daily: '日常', main: '主线' }
+const TYPE_LABEL = TYPE_LABELS
 // 主线和日常是常挂任务：表单里不显示截止/重复/提醒这些选项
 const ALWAYS_ON_TYPES = ['main', 'daily']
 const MAX_BG_EDGE = 1600
@@ -40,6 +42,7 @@ const state = {
   settings: null,
   editing: null,
   editingFitness: null,
+  editingCard: null,
   editorDate: dateKey(),
   summaryDate: dateKey(),
   background: null,
@@ -80,33 +83,38 @@ async function reload() {
 
 /* ---------------- 原生通知与闹钟 ---------------- */
 
-// 常驻通知只显示一行：最早到期的那个任务（主线不上横幅）
-function panelLines(groups) {
+// 常驻通知只显示一条：最早到期的那个任务（主线不上横幅）
+function panelLine(groups) {
   const nearest = nearestDeadline(groups)
-  if (!nearest) return []
+  if (!nearest) return null
   const info = countdown(nearest.entry.task.deadline, new Date(), state.settings?.countdownThresholds)
-  return [`${TYPE_LABEL[nearest.type]} ${nearest.entry.task.title}${info ? ` · ${info.label}` : ''}`]
+  return `${TYPE_LABEL[nearest.type]} ${nearest.entry.task.title}${info ? ` · ${info.label}` : ''}`
 }
 
 /**
  * 把“今天该显示什么、该在什么时间提醒”同步给原生层。
  * 每次任务/状态变化都重排一次：先清空旧闹钟再注册，避免删掉的任务还在响。
+ *
+ * 通知标题放任务本身（锁屏空间有限，前面不再加「空闲 · 今日任务」这种前缀），
+ * 状态和进度挪到正文；桌面小组件单独拿一份完整清单（widgetTitle/widgetBody）。
  */
 async function refreshNotifications() {
   if (!native.isNative()) return
   const groups = projectDay(state.tasks, state.done, state.date)
   const busy = Boolean(state.settings?.busy)
-  const lines = panelLines(groups)
+  const line = panelLine(groups)
 
   const total = TASK_TYPES.reduce((sum, type) => sum + groups[type].length, 0)
   const doneCount = TASK_TYPES.reduce((sum, type) => sum + groups[type].filter((i) => i.done).length, 0)
 
   await native.syncState({
-    title: total > 0 ? `${busy ? '繁忙中' : '空闲'} · 今日任务 ${doneCount}/${total}` : `${busy ? '繁忙中' : '空闲'} · 今日任务`,
-    text: lines.length ? lines.join('\n') : '暂无带倒计时的任务',
+    title: line || '今日任务',
+    text: `${busy ? '繁忙中' : '空闲'} · 已完成 ${doneCount}/${total}`,
     busy,
     progressDone: doneCount,
     progressTotal: total,
+    widgetTitle: `今日任务 ${doneCount}/${total}`,
+    widgetBody: dayLines(groups).join('\n') || '今天还没有任务',
     widgetColor: state.settings?.widgetColor || '#171a21',
     widgetOpacity: Number.isFinite(state.settings?.widgetOpacity) ? state.settings.widgetOpacity : 0.95,
   })
@@ -741,13 +749,20 @@ async function renderRecords() {
     const item = el('section', 'card')
     const top = el('div', 'card-head')
     top.appendChild(el('div', 'card-title', card.title || '未命名'))
+
+    const actions = el('div', 'card-actions')
+    const edit = el('button', 'link-inline', '编辑')
+    edit.type = 'button'
+    edit.addEventListener('click', () => openCardEditor(card))
     const del = el('button', 'link-danger', '删除')
     del.type = 'button'
     del.addEventListener('click', async () => {
       await store.remove('cards', card.id)
       await render()
     })
-    top.appendChild(del)
+    actions.append(edit, del)
+    top.appendChild(actions)
+
     item.appendChild(top)
     item.appendChild(el('div', 'muted', new Date(card.createdAt).toLocaleString('zh-CN')))
     item.appendChild(el('div', 'card-body', card.body))
@@ -786,12 +801,23 @@ async function renderRecords() {
 
   const addCard = el('button', 'primary', '写一张记录卡')
   addCard.type = 'button'
-  addCard.addEventListener('click', () => {
-    $('#card-form').reset()
-    $('#card-dialog').showModal()
-  })
+  addCard.addEventListener('click', () => openCardEditor(null))
   cardGroup.appendChild(addCard)
   view.appendChild(cardGroup)
+}
+
+/** 记录卡：新建和编辑共用同一个弹窗。 */
+function openCardEditor(card) {
+  state.editingCard = card || null
+  const form = $('#card-form')
+  form.reset()
+  $('#card-dialog-title').textContent = card ? '编辑记录卡' : '新记录卡'
+  if (card) {
+    form.elements.title.value = card.title || ''
+    form.elements.body.value = card.body || ''
+    form.elements.tags.value = (card.tags || []).join(',')
+  }
+  $('#card-dialog').showModal()
 }
 
 /* ---------------- 每日总结 ---------------- */
@@ -1936,9 +1962,11 @@ async function boot() {
     const form = $('#card-form')
     const body = form.elements.body.value.trim()
     if (!body) return
+    const editing = state.editingCard
     await store.put('cards', {
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
+      id: editing?.id || crypto.randomUUID(),
+      createdAt: editing?.createdAt || new Date().toISOString(),
+      updatedAt: editing ? new Date().toISOString() : undefined,
       title: form.elements.title.value.trim(),
       body,
       tags: form.elements.tags.value
@@ -1946,6 +1974,7 @@ async function boot() {
         .map((tag) => tag.trim())
         .filter(Boolean),
     })
+    state.editingCard = null
     $('#card-dialog').close()
     if (state.tab === 'records') await render()
   })

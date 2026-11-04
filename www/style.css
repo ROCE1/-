@@ -1102,3 +1102,11 @@ button.ghost.danger {
   border-radius: 8px;
   background: var(--input-bg);
 }
+
+/* 记录卡右上角的操作组 */
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}

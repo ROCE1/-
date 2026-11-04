@@ -355,6 +355,24 @@ async function main() {
     await waitFor(() => evaluate(`document.querySelectorAll('#view .tag-chip.active').length === 1`), { label: '标签过滤' })
     check('记录卡标签过滤', true)
 
+    // 编辑记录卡：改正文，不应新增一条
+    await evaluate(
+      `Array.from(document.querySelectorAll('#view .card-actions button')).find((b) => b.textContent === '编辑').click()`,
+    )
+    await waitFor(() => evaluate(`document.querySelector('#card-dialog')?.open === true`), { label: '记录卡编辑弹窗' })
+    const prefilled = await evaluate(`document.querySelector('#card-form [name="title"]').value`)
+    check('编辑弹窗带出原标题', prefilled === '检索用卡片', prefilled)
+    await evaluate(`
+      (() => {
+        const form = document.querySelector('#card-form')
+        form.elements.body.value = '编辑后的正文'
+        form.requestSubmit()
+      })()
+    `)
+    await waitFor(() => evaluate(`document.body.innerText.includes('编辑后的正文')`), { label: '记录卡编辑生效' })
+    const cardsAfterEdit = await evaluate(`document.querySelectorAll('#view .card').length`)
+    check('编辑记录卡不会新增卡片', cardsAfterEdit === 1, `卡片数 ${cardsAfterEdit}`)
+
     // 写一篇总结，页面应立即出现
     await evaluate(`document.querySelector('#view .ghost')?.click()`)
     await waitFor(() => evaluate(`document.querySelector('#summary-dialog')?.open === true`), { label: '总结弹窗' })

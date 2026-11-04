@@ -52,6 +52,13 @@ public class TaskNotificationsPlugin extends Plugin {
         ReminderStore.setPanel(getContext(), title, text);
         ReminderStore.setProgress(getContext(), doneCount, totalCount);
 
+        // 小组件要完整清单，跟通知的单行内容分开
+        String widgetTitle = call.getString("widgetTitle");
+        String widgetBody = call.getString("widgetBody");
+        if (widgetTitle != null && widgetBody != null) {
+            ReminderStore.setWidgetPanel(getContext(), widgetTitle, widgetBody);
+        }
+
         // 小组件外观（可空）：只在前端传了值的时候覆盖，避免把用户设置冲掉
         String widgetColor = call.getString("widgetColor");
         Double widgetOpacity = call.getDouble("widgetOpacity");

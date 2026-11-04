@@ -25,8 +25,9 @@ public class BusyToggleReceiver extends BroadcastReceiver {
 
         int done = ReminderStore.progressDone(context);
         int total = ReminderStore.progressTotal(context);
-        String title = retitle(ReminderStore.panelTitle(context), busy);
-        String text = ReminderStore.panelText(context);
+        // 标题是任务本身，状态前缀在正文里，所以只改正文
+        String title = ReminderStore.panelTitle(context);
+        String text = restate(ReminderStore.panelText(context), busy);
         ReminderStore.setPanel(context, title, text);
 
         NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -36,9 +37,9 @@ public class BusyToggleReceiver extends BroadcastReceiver {
         TaskWidgetProvider.refresh(context);
     }
 
-    /** 只换「空闲 / 繁忙中」前缀，后面的任务数保持原样。 */
-    private static String retitle(String title, boolean busy) {
-        String rest = title == null ? "今日任务" : title.replaceFirst("^(空闲|繁忙中)\\s*·\\s*", "");
-        return (busy ? "繁忙中 · " : "空闲 · ") + rest;
+    /** 只换整行开头的「空闲 / 繁忙中」，后面的进度保持原样。 */
+    private static String restate(String text, boolean busy) {
+        String rest = text == null ? "" : text.replaceFirst("^(空闲|繁忙中)\\s*·\\s*", "");
+        return (busy ? "繁忙中" : "空闲") + (rest.isEmpty() ? "" : " · " + rest);
     }
 }

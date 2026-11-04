@@ -79,6 +79,7 @@ export function countdown(deadlineIso, now = new Date(), thresholds = DEFAULT_TH
 
 /** 任务类型在界面/通知里的固定顺序：紧急 → 支线 → 日常 → 主线。 */
 export const TYPE_ORDER = ['urgent', 'side', 'daily', 'main']
+export const TYPE_LABELS = { urgent: '紧急', side: '支线', daily: '日常', main: '主线' }
 /** 只出现在常驻通知里的类型（主线不上横幅）。 */
 export const NOTIFY_TYPES = ['urgent', 'side', 'daily']
 
@@ -160,6 +161,21 @@ export function nearestDeadline(groups) {
     }
   }
   return best
+}
+
+/**
+ * 今日清单（与软件内顺序一致：紧急→支线→日常→主线），给桌面小组件用。
+ * 完成的任务也列出来，末尾带 ✓。
+ */
+export function dayLines(groups, { limit = 12 } = {}) {
+  const lines = []
+  for (const type of TYPE_ORDER) {
+    for (const entry of groups[type] || []) {
+      lines.push(`${TYPE_LABELS[type]} ${entry.task.title}${entry.done ? ' ✓' : ''}`)
+      if (lines.length >= limit) return lines
+    }
+  }
+  return lines
 }
 
 /** 某天到底有没有任务（日历打点用）。 */

@@ -29,6 +29,8 @@ final class ReminderStore {
     private static final String KEY_WIDGET_OPACITY = "widget_opacity";
     private static final String KEY_SOUND_PATH = "alarm_sound_path";
     private static final String KEY_SOUND_NAME = "alarm_sound_name";
+    private static final String KEY_WIDGET_TITLE = "widget_title";
+    private static final String KEY_WIDGET_BODY = "widget_body";
 
     private ReminderStore() {}
 
@@ -133,6 +135,19 @@ final class ReminderStore {
 
     static float widgetOpacity(Context context) {
         return prefs(context).getFloat(KEY_WIDGET_OPACITY, 0.95f);
+    }
+
+    /** 小组件内容与通知分开存：通知只留一条，小组件要完整清单。 */
+    static void setWidgetPanel(Context context, String title, String body) {
+        prefs(context).edit().putString(KEY_WIDGET_TITLE, title).putString(KEY_WIDGET_BODY, body).apply();
+    }
+
+    static String widgetTitle(Context context) {
+        return prefs(context).getString(KEY_WIDGET_TITLE, "今日任务");
+    }
+
+    static String widgetBody(Context context) {
+        return prefs(context).getString(KEY_WIDGET_BODY, "今天还没有任务");
     }
 
     /** 自定义提醒音乐：文件路径 + 原始文件名（空 = 用系统默认闹铃）。 */

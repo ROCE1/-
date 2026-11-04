@@ -8,17 +8,16 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Build;
-import android.view.View;
 import android.widget.RemoteViews;
 
 /**
- * 桌面小组件：显示今天最靠前的 3 条任务。
+ * 桌面小组件：显示今日完整清单（顺序和 App 内一致：紧急→支线→日常→主线）。
  *
- * 数据不另存一份 —— 直接读常驻通知用的同一份面板数据（ReminderStore 里的 title/text），
- * 这样锁屏通知和桌面小组件永远一致。前端每次 syncState 都会调 refresh()。
+ * 数据单独存一份（ReminderStore 的 widgetTitle / widgetBody）：
+ * 常驻通知为了锁屏空间只显示一条，小组件要的是全部，两者不能共用同一份文本。
+ * 前端每次 syncState 都会调 refresh()。
  */
 public class TaskWidgetProvider extends AppWidgetProvider {
-    private static final int[] LINE_IDS = { R.id.widget_line1, R.id.widget_line2, R.id.widget_line3 };
 
     /** 刷新所有已放置的组件实例（前端同步状态后调用）。 */
     static void refresh(Context context) {
@@ -32,27 +31,19 @@ public class TaskWidgetProvider extends AppWidgetProvider {
     static void update(Context context, AppWidgetManager manager, int widgetId) {
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_tasks);
 
-        String title = ReminderStore.panelTitle(context);
-        String text = ReminderStore.panelText(context);
+        // 小组件用自己的一份数据（完整清单），不再是通知的那一行
+        String title = ReminderStore.widgetTitle(context);
         int done = ReminderStore.progressDone(context);
         int total = ReminderStore.progressTotal(context);
-        if (total > 0) title = title + " · " + done + "/" + total;
+        if (total > 0) title = "今日任务 " + done + "/" + total;
 
+        String body = ReminderStore.widgetBody(context);
         views.setTextViewText(R.id.widget_title, title);
+        views.setTextViewText(R.id.widget_body, body == null || body.isEmpty() ? "今天还没有任务" : body);
 
         // 背景色 + 不透明度由前端设置页决定（setBackgroundColor 会盖掉圆角 drawable）
         int background = withAlpha(ReminderStore.widgetColor(context), ReminderStore.widgetOpacity(context));
         views.setInt(R.id.widget_root, "setBackgroundColor", background);
-
-        String[] lines = text == null || text.isEmpty() ? new String[] { "今天还没有任务" } : text.split("\n");
-        for (int i = 0; i < LINE_IDS.length; i++) {
-            if (i < lines.length) {
-                views.setTextViewText(LINE_IDS[i], lines[i]);
-                views.setViewVisibility(LINE_IDS[i], View.VISIBLE);
-            } else {
-                views.setViewVisibility(LINE_IDS[i], View.GONE);
-            }
-        }
 
         Intent open = new Intent(context, MainActivity.class);
         open.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);

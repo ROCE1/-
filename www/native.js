@@ -14,6 +14,8 @@ export async function syncState({
   busy,
   progressDone,
   progressTotal,
+  widgetTitle,
+  widgetBody,
   widgetColor,
   widgetOpacity,
 }) {
@@ -26,6 +28,8 @@ export async function syncState({
       busy,
       progressDone,
       progressTotal,
+      widgetTitle,
+      widgetBody,
       widgetColor,
       widgetOpacity,
     })

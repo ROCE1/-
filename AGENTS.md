@@ -173,11 +173,13 @@ core.sshCommand  ssh -i D:/dev/.ssh/id_ed25519_dshapp -o IdentitiesOnly=yes -o U
   循环播放（没设置就用系统闹铃），所以换音乐不需要动通知频道。
 - **通知频道 id 升到 `_v3`**：`Notifier.ensureChannels` 会先删掉 `ongoing/strong/soft` 和
   `*_v2` 这些历史频道，否则系统「通知类别」里会出现同名重复项。
-- **通知与小组件同源**：常驻通知的标题/正文/进度/配色存在 `ReminderStore`（SharedPreferences），
-  桌面小组件 `TaskWidgetProvider` 直接读它，所以 `syncState` 之后两边一定一致。
+- **通知与小组件同源，但内容不同**：两者都存 `ReminderStore`（SharedPreferences）。
+  常驻通知的**标题就是那条任务**（锁屏空间有限，不再加「空闲 · 今日任务」前缀），正文放状态与进度；
+  小组件另存 `widgetTitle` / `widgetBody`（`model.dayLines()`，今日完整清单，顺序同 App）。
+  加新元素时先想清楚它该出现在哪一边，别再把两者绑成同一份文本。
 - **通知栏的繁忙按钮**是原生先接的：`BusyToggleReceiver` 翻转状态并写一条 pending（含点击时刻），
   前端在启动 / 回前台 / 30 秒轮询时用 `consumeBusyToggle()` 取走，按那个时刻补写 `sessions`。
-  加新的通知按钮时注意：原生只改 UI 和 pending，真正的数据仍由前端落库。
+  注意：标题是任务、状态前缀在正文，所以按钮只改正文开头那两个字（见 `restate()`）。
 - **改静态资源要同步改 `index.html` 里的 `?v=`**，否则 WebView 可能吃旧缓存。
 
 ## 安卓签名与更新（已跑通）
