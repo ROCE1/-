@@ -148,8 +148,15 @@ core.sshCommand  ssh -i D:/dev/.ssh/id_ed25519_dshapp -o IdentitiesOnly=yes -o U
   都没排序时退回“截止时间升序 + 标题”。上下箭头调序时会把整组重新编号落库。
 - **统计口径**：`sessions` 只记了「繁忙」区间（`kind='busy'`），所以空闲 = 已过去的时间 − 忙碌；
   未结束的会话按“到当前时刻”计，重叠区间合并。改统计前先看 `www/stats.js` 的测试。
-- **通知与小组件同源**：常驻通知的标题/正文/进度存在 `ReminderStore`（SharedPreferences），
+- **提前提醒**：`model.leadMinutesFor(task, settings)` —— 任务上的 `leadMinutes` 优先，其次
+  `settings.leadMinutes`（默认 15），都没有才兜底 15 分钟。
+- **备份导入**：`store.exportAll()` 会把背景图 Blob 转成 dataURL（JSON 存不了 Blob），
+  `importAll()` 再转回 Blob；导入只覆盖备份里存在的表，导入前必须让用户确认。
+- **通知与小组件同源**：常驻通知的标题/正文/进度/配色存在 `ReminderStore`（SharedPreferences），
   桌面小组件 `TaskWidgetProvider` 直接读它，所以 `syncState` 之后两边一定一致。
+- **通知栏的繁忙按钮**是原生先接的：`BusyToggleReceiver` 翻转状态并写一条 pending（含点击时刻），
+  前端在启动 / 回前台 / 30 秒轮询时用 `consumeBusyToggle()` 取走，按那个时刻补写 `sessions`。
+  加新的通知按钮时注意：原生只改 UI 和 pending，真正的数据仍由前端落库。
 - **改静态资源要同步改 `index.html` 里的 `?v=`**，否则 WebView 可能吃旧缓存。
 
 ## 安卓签名与更新（已跑通）

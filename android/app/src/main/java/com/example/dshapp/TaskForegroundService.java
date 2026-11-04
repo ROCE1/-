@@ -43,7 +43,9 @@ public class TaskForegroundService extends Service {
 
         ReminderStore.setPanel(this, title, text);
         ReminderStore.setProgress(this, done, total);
-        startForeground(Notifier.ID_ONGOING, Notifier.ongoing(this, title, text, done, total));
+        startForeground(
+                Notifier.ID_ONGOING,
+                Notifier.ongoing(this, title, text, done, total, ReminderStore.isBusy(this)));
         return START_STICKY;
     }
 

@@ -929,3 +929,69 @@ button.ghost {
   border-color: var(--line);
   color: var(--text);
 }
+
+button.ghost.danger {
+  border-color: var(--chip-danger);
+  color: var(--chip-danger);
+}
+
+/* ============================================================
+ * 记录卡检索 / 小组件预览
+ * ============================================================ */
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.search-row input[type="search"] {
+  flex: 1;
+  min-width: 0;
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 14px;
+}
+
+.tag-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.tag-chip {
+  appearance: none;
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tag-chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.widget-preview {
+  height: 64px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  margin-bottom: 10px;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.widget-preview-text {
+  font-size: 12px;
+  color: #e6e9ef;
+}

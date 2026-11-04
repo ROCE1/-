@@ -8,13 +8,46 @@ export function isNative() {
   return Boolean(plugin())
 }
 
-export async function syncState({ title, text, busy, progressDone, progressTotal }) {
+export async function syncState({
+  title,
+  text,
+  busy,
+  progressDone,
+  progressTotal,
+  widgetColor,
+  widgetOpacity,
+}) {
   const api = plugin()
   if (!api) return null
   try {
-    return await api.syncState({ title, text, busy, progressDone, progressTotal })
+    return await api.syncState({
+      title,
+      text,
+      busy,
+      progressDone,
+      progressTotal,
+      widgetColor,
+      widgetOpacity,
+    })
   } catch (error) {
     console.warn('[native] syncState 失败', error)
+    return null
+  }
+}
+
+/**
+ * 通知栏上的「繁忙 / 空闲」按钮是原生直接处理的，这里把用户那次点击取回来，
+ * 由前端补写工作时段（sessions 在 IndexedDB 里，只有前端能写）。
+ * 返回 { busy, at } 或 null；取过一次就清掉。
+ */
+export async function consumeBusyToggle() {
+  const api = plugin()
+  if (!api) return null
+  try {
+    const result = await api.consumeBusyToggle()
+    if (!result || typeof result.busy !== 'boolean') return null
+    return { busy: result.busy, at: Number(result.at) || Date.now() }
+  } catch {
     return null
   }
 }

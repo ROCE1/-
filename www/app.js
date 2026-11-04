@@ -1,10 +1,10 @@
-import { dateKey, countdown, hasAnyTask, moveInList, projectDay, weekdayOf } from './model.js'
+import { dateKey, countdown, hasAnyTask, leadMinutesFor, moveInList, projectDay, weekdayOf } from './model.js'
 import * as store from './store.js'
 import * as native from './native.js'
 import { apply as applyTheme, current as currentTheme, list as listThemes } from './themes.js'
 import { DAY_LABEL, dayKind, detailOf, fitnessLine, itemsForDay, rotationFor } from './fitness.js'
 import { monthDays, monthMatrix, monthTitle, shiftMonth } from './calendar.js'
-import { formatDuration, percentLabel, summarize } from './stats.js'
+import { formatDuration, percentLabel, startOfDay, startOfMonth, startOfWeek, summarizeRange } from './stats.js'
 
 const SOURCE = { owner: 'ROCE1', repo: '-', mirror: 'https://gh-proxy.com/' }
 const WEEK_LABEL = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -18,6 +18,9 @@ const state = {
   calendarDate: dateKey(),
   month: monthOf(dateKey()),
   sortMode: false,
+  statsRange: 'week',
+  cardQuery: '',
+  cardTag: '',
   tasks: [],
   fitness: [],
   done: {},
@@ -64,7 +67,6 @@ async function reload() {
 
 /* ---------------- 原生通知与闹钟 ---------------- */
 
-const LEAD_MINUTES = 15
 // 常驻通知最多显示 5 行任务（健身另起一行）
 const MAX_PANEL_LINES = 5
 
@@ -100,11 +102,13 @@ async function refreshNotifications() {
   const doneCount = TASK_TYPES.reduce((sum, type) => sum + groups[type].filter((i) => i.done).length, 0)
 
   await native.syncState({
-    title: `${busy ? '繁忙中' : '空闲'} · 今日任务 ${doneCount}/${total}`,
+    title: total > 0 ? `${busy ? '繁忙中' : '空闲'} · 今日任务 ${doneCount}/${total}` : `${busy ? '繁忙中' : '空闲'} · 今日任务`,
     text: lines.length ? lines.join('\n') : '今天还没有任务',
     busy,
     progressDone: doneCount,
     progressTotal: total,
+    widgetColor: state.settings?.widgetColor || '#171a21',
+    widgetOpacity: Number.isFinite(state.settings?.widgetOpacity) ? state.settings.widgetOpacity : 0.95,
   })
 
   await native.cancelAll()
@@ -155,14 +159,15 @@ async function refreshNotifications() {
       if (entry.done || !entry.task.deadline) continue
       const due = new Date(entry.task.deadline).getTime()
       if (Number.isNaN(due)) continue
-      const lead = due - LEAD_MINUTES * 60000
+      const leadMinutes = leadMinutesFor(entry.task, state.settings)
+      const lead = due - leadMinutes * 60000
       const strong = Boolean(entry.task.strong)
       if (lead > nowMs) {
         await native.schedule({
           id: `${entry.task.id}:lead`,
           at: lead,
           title: entry.task.title,
-          body: `还有 ${LEAD_MINUTES} 分钟到期`,
+          body: `还有 ${leadMinutes} 分钟到期`,
           strong,
         })
       }
@@ -420,24 +425,64 @@ async function renderStats() {
   const view = $('#view')
   view.replaceChildren()
   const sessions = await store.getAll('sessions')
-  const summary = summarize(sessions, new Date())
+  const now = new Date()
+
+  const rangeKey = state.statsRange === 'month' ? 'month' : 'week'
+  const rangeLabel = rangeKey === 'month' ? '本月' : '本周'
+  const rangeStart = rangeKey === 'month' ? startOfMonth(now) : startOfWeek(now)
+  const today = summarizeRange(sessions, startOfDay(now), now)
+  const range = summarizeRange(sessions, rangeStart, now)
+
   $('#today-summary').textContent = '工作 / 空闲占比（来自「繁忙」开关）'
+
+  // 本周 / 本月切换
+  const seg = el('div', 'segmented')
+  for (const [value, label] of [
+    ['week', '本周'],
+    ['month', '本月'],
+  ]) {
+    const button = el('button', `seg${rangeKey === value ? ' active' : ''}`, label)
+    button.type = 'button'
+    button.addEventListener('click', () => {
+      state.statsRange = value
+      rerender()
+    })
+    seg.appendChild(button)
+  }
 
   const card = el('section', 'card stats-card')
   const rings = el('div', 'rings')
-  rings.append(ringBlock('今日', summary.today), ringBlock('本周', summary.week))
+  rings.append(ringBlock('今日', today), ringBlock(rangeLabel, range))
   card.appendChild(rings)
   card.appendChild(el('div', 'stats-note muted', '空闲 = 已过去的时间 − 繁忙时长；没开 App 的时段也算空闲。'))
+  view.appendChild(seg)
   view.appendChild(card)
 
   const detail = el('section', 'card')
   detail.append(
-    statRow('今日工作', formatDuration(summary.today.busyMs)),
-    statRow('今日空闲', formatDuration(summary.today.idleMs)),
-    statRow('本周工作', formatDuration(summary.week.busyMs)),
-    statRow('本周空闲', formatDuration(summary.week.idleMs)),
+    statRow('今日工作', formatDuration(today.busyMs)),
+    statRow('今日空闲', formatDuration(today.idleMs)),
+    statRow(`${rangeLabel}工作`, formatDuration(range.busyMs)),
+    statRow(`${rangeLabel}空闲`, formatDuration(range.idleMs)),
   )
   view.appendChild(detail)
+
+  // 清空历史：数据一直累计会越来越难看出“最近怎么样”，给一个手动归零的出口
+  const manage = el('section', 'card')
+  manage.appendChild(el('div', 'field-label', '记录管理'))
+  const countLine = el('div', 'muted', `已记录 ${sessions.filter((s) => s.kind === 'busy').length} 段繁忙时间`)
+  manage.appendChild(countLine)
+
+  const clearButton = el('button', 'ghost danger', '清空时间记录')
+  clearButton.type = 'button'
+  clearButton.addEventListener('click', async () => {
+    const ok = window.confirm('清空所有工作/空闲记录？统计会归零，任务与日志不受影响。')
+    if (!ok) return
+    await store.clear('sessions')
+    await rerender()
+  })
+  manage.appendChild(clearButton)
+  view.appendChild(manage)
 }
 
 /* ---------------- 健身 ---------------- */
@@ -651,16 +696,48 @@ async function renderRecords() {
   journalGroup.appendChild(writeButton)
   view.appendChild(journalGroup)
 
-  // 记录卡
+  // 记录卡（带检索）
   const cardGroup = el('section', 'group')
   const cardHead = el('div', 'group-head')
-  cardHead.append(el('span', 'group-title', '记录卡'), el('span', 'group-count', String(cards.length)))
+  const cardCount = el('span', 'group-count', String(cards.length))
+  cardHead.append(el('span', 'group-title', '记录卡'), cardCount)
   cardGroup.appendChild(cardHead)
 
-  if (cards.length === 0) {
-    cardGroup.appendChild(el('div', 'empty', '还没有记录卡。它和每日日志不同：随时写、可多条。'))
+  const searchRow = el('div', 'search-row')
+  const searchInput = document.createElement('input')
+  searchInput.type = 'search'
+  searchInput.placeholder = '搜索标题、内容或标签'
+  searchInput.value = state.cardQuery
+  const clearSearch = el('button', 'link-inline', '清空')
+  clearSearch.type = 'button'
+  clearSearch.addEventListener('click', () => {
+    state.cardQuery = ''
+    state.cardTag = ''
+    searchInput.value = ''
+    for (const node of tagBar.children) node.classList.remove('active')
+    renderCards()
+  })
+  searchRow.append(searchInput, clearSearch)
+  cardGroup.appendChild(searchRow)
+
+  const allTags = [...new Set(cards.flatMap((card) => card.tags || []))].sort((a, b) => a.localeCompare(b, 'zh'))
+  const tagBar = el('div', 'tag-bar')
+  for (const tag of allTags) {
+    const chip = el('button', `tag-chip${state.cardTag === tag ? ' active' : ''}`, `#${tag}`)
+    chip.type = 'button'
+    chip.addEventListener('click', () => {
+      state.cardTag = state.cardTag === tag ? '' : tag
+      for (const node of tagBar.children) node.classList.toggle('active', node === chip && state.cardTag === tag)
+      renderCards()
+    })
+    tagBar.appendChild(chip)
   }
-  for (const card of cards) {
+  if (allTags.length) cardGroup.appendChild(tagBar)
+
+  const list = el('div', 'card-list')
+  cardGroup.appendChild(list)
+
+  function cardItem(card) {
     const item = el('section', 'card')
     const top = el('div', 'card-head')
     top.appendChild(el('div', 'card-title', card.title || '未命名'))
@@ -675,8 +752,37 @@ async function renderRecords() {
     item.appendChild(el('div', 'muted', new Date(card.createdAt).toLocaleString('zh-CN')))
     item.appendChild(el('div', 'card-body', card.body))
     if (card.tags?.length) item.appendChild(el('div', 'muted', card.tags.map((tag) => `#${tag}`).join(' ')))
-    cardGroup.appendChild(item)
+    return item
   }
+
+  function renderCards() {
+    const query = state.cardQuery.trim().toLowerCase()
+    const filtered = cards.filter((card) => {
+      if (state.cardTag && !(card.tags || []).includes(state.cardTag)) return false
+      if (!query) return true
+      const haystack = `${card.title || ''}\n${card.body || ''}\n${(card.tags || []).join(' ')}`.toLowerCase()
+      return haystack.includes(query)
+    })
+
+    cardCount.textContent = query || state.cardTag ? `${filtered.length}/${cards.length}` : String(cards.length)
+    list.replaceChildren()
+    if (cards.length === 0) {
+      list.appendChild(el('div', 'empty', '还没有记录卡。它和每日日志不同：随时写、可多条。'))
+      return
+    }
+    if (filtered.length === 0) {
+      list.appendChild(el('div', 'empty', '没有匹配的记录卡'))
+      return
+    }
+    for (const card of filtered) list.appendChild(cardItem(card))
+  }
+
+  searchInput.addEventListener('input', () => {
+    state.cardQuery = searchInput.value
+    renderCards()
+  })
+
+  renderCards()
 
   const addCard = el('button', 'primary', '写一张记录卡')
   addCard.type = 'button'
@@ -748,6 +854,7 @@ function fillForm(task) {
   form.elements.repeatKind.value = task.repeat.kind
   form.elements.deadline.value = task.deadline ? task.deadline.slice(0, 16) : ''
   form.elements.strong.checked = Boolean(task.strong)
+  form.elements.leadMinutes.value = task.leadMinutes ?? ''
   form.elements.notes.value = task.notes || ''
   if (task.repeat.kind === 'once') form.elements.onceDate.value = task.repeat.date
   if (task.repeat.kind === 'everyN') form.elements.everyN.value = task.repeat.n
@@ -780,6 +887,7 @@ function readForm() {
 
   const deadlineValue = form.elements.deadline.value
   const type = form.elements.type.value
+  const leadMinutes = Number(form.elements.leadMinutes.value)
   return {
     title: form.elements.title.value.trim(),
     // 老数据里可能还留着 fitness 类型（正常已被迁移），兜底成主线，避免任务“存了但看不见”
@@ -787,6 +895,7 @@ function readForm() {
     repeat,
     deadline: deadlineValue ? new Date(deadlineValue).toISOString() : null,
     strong: form.elements.strong.checked,
+    leadMinutes: Number.isFinite(leadMinutes) && leadMinutes > 0 ? Math.round(leadMinutes) : null,
     notes: form.elements.notes.value.trim(),
   }
 }
@@ -944,6 +1053,16 @@ async function loadBackground() {
     blur: record.blur,
   }
   paintBackground()
+}
+
+/** 小组件背景色，只接受 #rrggbb（原生侧用 Color.parseColor 解析）。 */
+function normalizeHex(value) {
+  return /^#[0-9a-fA-F]{6}$/.test(String(value || '')) ? String(value).toLowerCase() : '#171a21'
+}
+
+function widgetOpacityValue() {
+  const value = Number(state.settings?.widgetOpacity)
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0.95
 }
 
 function sliderRow({ label, value, min, max, step, onInput, onChange }) {
@@ -1168,6 +1287,27 @@ function renderSettings() {
   timeRow.appendChild(timeInput)
   timeCard.appendChild(timeRow)
 
+  // 截止提前量：全局默认，任务里可以单独覆盖
+  const leadRow = el('label', 'field row')
+  leadRow.append(el('span', '', '截止提前提醒（分钟）'))
+  const leadInput = document.createElement('input')
+  leadInput.type = 'number'
+  leadInput.min = '1'
+  leadInput.max = '10080'
+  leadInput.inputMode = 'numeric'
+  leadInput.value = String(state.settings.leadMinutes ?? 15)
+  leadInput.addEventListener('change', async () => {
+    const value = Number(leadInput.value)
+    const next = Number.isFinite(value) && value > 0 ? Math.round(value) : 15
+    leadInput.value = String(next)
+    state.settings.leadMinutes = next
+    await store.saveSetting('leadMinutes', next)
+    await refreshNotifications()
+  })
+  leadRow.appendChild(leadInput)
+  timeCard.appendChild(leadRow)
+  timeCard.appendChild(el('div', 'muted', '任务里填了「提前提醒」就以任务为准，留空则用这里。'))
+
   timeCard.appendChild(el('div', 'field-label', '倒计时颜色'))
   const legend = el('div', 'legend')
   for (const [level, text] of [
@@ -1294,6 +1434,52 @@ function renderSettings() {
       el('div', 'muted', '荣耀/华为还需在「应用启动管理」里允许自启动，否则提醒可能被系统延迟。'),
     )
     view.appendChild(notifyCard)
+
+    // 桌面小组件的外观（仅安卓）：颜色 + 不透明度，跟着 syncState 一起下发给原生
+    const widgetCard = el('section', 'card')
+    widgetCard.appendChild(el('div', 'field-label', '桌面小组件'))
+
+    const preview = el('div', 'widget-preview')
+    preview.style.background = normalizeHex(state.settings.widgetColor)
+    preview.style.opacity = String(widgetOpacityValue())
+    preview.appendChild(el('span', 'widget-preview-text', '今日任务 · 3/7'))
+    widgetCard.appendChild(preview)
+
+    const colorRow = el('label', 'field row')
+    colorRow.append(el('span', '', '背景颜色'))
+    const colorInput = document.createElement('input')
+    colorInput.type = 'color'
+    colorInput.value = normalizeHex(state.settings.widgetColor)
+    colorInput.addEventListener('input', () => {
+      preview.style.background = colorInput.value
+    })
+    colorInput.addEventListener('change', async () => {
+      state.settings.widgetColor = colorInput.value
+      await store.saveSetting('widgetColor', colorInput.value)
+      await refreshNotifications()
+    })
+    colorRow.appendChild(colorInput)
+    widgetCard.appendChild(colorRow)
+
+    widgetCard.appendChild(
+      sliderRow({
+        label: '不透明度',
+        value: Math.round(widgetOpacityValue() * 100),
+        min: 0,
+        max: 100,
+        step: 1,
+        onInput: (value) => {
+          preview.style.opacity = String(value / 100)
+        },
+        onChange: async (value) => {
+          state.settings.widgetOpacity = value / 100
+          await store.saveSetting('widgetOpacity', value / 100)
+          await refreshNotifications()
+        },
+      }),
+    )
+    widgetCard.appendChild(el('div', 'muted', '组件是纯色块渲染，所以边角会变成直角。'))
+    view.appendChild(widgetCard)
   }
 
   const updateCard = el('section', 'card')
@@ -1314,6 +1500,7 @@ function renderSettings() {
   view.appendChild(updateCard)
 
   const backupCard = el('section', 'card')
+  backupCard.appendChild(el('div', 'field-label', '备份'))
   const exportBtn = el('button', 'primary', '导出备份')
   exportBtn.type = 'button'
   exportBtn.addEventListener('click', async () => {
@@ -1327,7 +1514,55 @@ function renderSettings() {
     URL.revokeObjectURL(url)
   })
   backupCard.appendChild(exportBtn)
+
+  const importFile = document.createElement('input')
+  importFile.type = 'file'
+  importFile.accept = 'application/json,.json'
+  importFile.hidden = true
+  backupCard.appendChild(importFile)
+
+  const importBtn = el('button', 'ghost', '导入备份')
+  importBtn.type = 'button'
+  importBtn.addEventListener('click', () => importFile.click())
+  importFile.addEventListener('change', async () => {
+    const file = importFile.files?.[0]
+    importFile.value = ''
+    if (!file) return
+    try {
+      const payload = JSON.parse(await file.text())
+      const summary = summarizeBackup(payload)
+      const ok = window.confirm(`导入会用备份覆盖当前数据：\n${summary}\n\n继续？`)
+      if (!ok) return
+      await store.importAll(payload)
+      await reload()
+      await render()
+      await refreshNotifications()
+      window.alert('导入完成')
+    } catch (error) {
+      window.alert(`导入失败：${error.message}`)
+    }
+  })
+  backupCard.appendChild(importBtn)
+  backupCard.appendChild(el('div', 'muted', '导入会清空现有数据再写入，背景图也会一起恢复。'))
   view.appendChild(backupCard)
+}
+
+/** 备份文件里有什么，导入前让人一眼看清。 */
+function summarizeBackup(payload) {
+  const data = payload?.data || payload || {}
+  const labels = {
+    tasks: '任务',
+    fitness: '健身项',
+    occurrences: '完成记录',
+    cards: '记录卡',
+    journal: '每日总结',
+    sessions: '时间片段',
+    settings: '设置项',
+  }
+  const parts = Object.entries(labels)
+    .filter(([key]) => Array.isArray(data[key]))
+    .map(([key, label]) => `${label} ${data[key].length} 条`)
+  return parts.length ? parts.join('、') : '（没有识别到可导入的数据）'
 }
 
 /* ---------------- 框架 ---------------- */
@@ -1357,20 +1592,39 @@ function rerender() {
   render().catch((error) => console.warn('[render]', error))
 }
 
-async function toggleBusy() {
-  const busy = !state.settings.busy
+/**
+ * 切繁忙 / 空闲，并记账。
+ * atMs 用来支持“在通知栏上点的按钮”：那时的时刻才是真正的切换点，
+ * 哪怕几分钟后才打开 App，工作时段也能按真实时间落库。
+ */
+async function applyBusy(busy, atMs = Date.now()) {
   state.settings.busy = busy
   await store.saveSetting('busy', busy)
 
   const sessions = await store.getAll('sessions')
   const open = sessions.filter((s) => s.kind === 'busy' && !s.end).sort((a, b) => b.start.localeCompare(a.start))[0]
   if (busy) {
-    await store.put('sessions', { id: crypto.randomUUID(), kind: 'busy', start: new Date().toISOString(), end: null })
+    await store.put('sessions', { id: crypto.randomUUID(), kind: 'busy', start: new Date(atMs).toISOString(), end: null })
   } else if (open) {
-    await store.put('sessions', { ...open, end: new Date().toISOString() })
+    // 结束时间不能早于开始时间（系统时钟回拨 / 通知点的顺序错乱时兜一下）
+    const startMs = new Date(open.start).getTime()
+    const endMs = Math.max(atMs, Number.isFinite(startMs) ? startMs + 1000 : atMs)
+    await store.put('sessions', { ...open, end: new Date(endMs).toISOString() })
   }
   await render()
   await refreshNotifications()
+}
+
+async function toggleBusy() {
+  await applyBusy(!Boolean(state.settings.busy))
+}
+
+/** 把通知栏上那次点击取回来，跟本地状态对齐。 */
+async function syncBusyFromNotification() {
+  const pending = await native.consumeBusyToggle()
+  if (!pending) return
+  if (Boolean(state.settings?.busy) === pending.busy) return
+  await applyBusy(pending.busy, pending.at)
 }
 
 async function detectVersion() {
@@ -1416,6 +1670,8 @@ async function boot() {
   if (migrated) await reload()
   await ensureFitnessAnchor()
   await loadBackground()
+  // 上次在通知栏上点的「繁忙/空闲」可能还没记账
+  await syncBusyFromNotification()
   await render()
   await refreshNotifications()
 
@@ -1511,8 +1767,14 @@ async function boot() {
 
   setInterval(() => {
     handleDateRollover().catch(() => {})
+    syncBusyFromNotification().catch(() => {})
     if (state.tab === 'today') updateTopbar()
   }, 30000)
+
+  // 从桌面小组件 / 通知栏回来时，先把原生侧那次点击补记上
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) syncBusyFromNotification().catch(() => {})
+  })
 
   // 清理 0.1.x 遗留的 PWA service worker：
   // 它会把旧版的 index.html/style.css/app.js 缓存下来，

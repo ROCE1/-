@@ -6,7 +6,7 @@
     <title>LY App</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="theme-color" content="#0f1115" />
-    <link rel="stylesheet" href="./style.css?v=0.6.0" />
+    <link rel="stylesheet" href="./style.css?v=0.7.0" />
   </head>
   <body>
     <header class="topbar">
@@ -84,6 +84,11 @@
         <label class="field">
           <span>截止时间（留空 = 不倒计时）</span>
           <input type="datetime-local" name="deadline" />
+        </label>
+
+        <label class="field">
+          <span>提前提醒（分钟，留空用全局默认）</span>
+          <input type="number" name="leadMinutes" min="0" max="10080" inputmode="numeric" placeholder="15" />
         </label>
 
         <label class="field row">
@@ -223,6 +228,6 @@
       </form>
     </dialog>
 
-    <script type="module" src="./app.js?v=0.6.0"></script>
+    <script type="module" src="./app.js?v=0.7.0"></script>
   </body>
 </html>

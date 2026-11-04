@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
 import android.os.Build;
 import android.view.View;
 import android.widget.RemoteViews;
@@ -39,6 +40,10 @@ public class TaskWidgetProvider extends AppWidgetProvider {
 
         views.setTextViewText(R.id.widget_title, title);
 
+        // 背景色 + 不透明度由前端设置页决定（setBackgroundColor 会盖掉圆角 drawable）
+        int background = withAlpha(ReminderStore.widgetColor(context), ReminderStore.widgetOpacity(context));
+        views.setInt(R.id.widget_root, "setBackgroundColor", background);
+
         String[] lines = text == null || text.isEmpty() ? new String[] { "今天还没有任务" } : text.split("\n");
         for (int i = 0; i < LINE_IDS.length; i++) {
             if (i < lines.length) {
@@ -56,6 +61,19 @@ public class TaskWidgetProvider extends AppWidgetProvider {
         views.setOnClickPendingIntent(R.id.widget_root, PendingIntent.getActivity(context, 0, open, flags));
 
         manager.updateAppWidget(widgetId, views);
+    }
+
+    /** #rrggbb + 不透明度 → ARGB；颜色写坏了就退回默认深色。 */
+    private static int withAlpha(String color, float opacity) {
+        int rgb;
+        try {
+            rgb = Color.parseColor(color == null ? "#171a21" : color);
+        } catch (IllegalArgumentException error) {
+            rgb = Color.parseColor("#171a21");
+        }
+        float clamped = Math.max(0f, Math.min(1f, opacity));
+        int alpha = Math.round(clamped * 255f);
+        return (alpha << 24) | (rgb & 0x00FFFFFF);
     }
 
     @Override

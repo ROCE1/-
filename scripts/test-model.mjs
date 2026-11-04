@@ -9,6 +9,7 @@ import {
   projectDay,
   hasAnyTask,
   moveInList,
+  leadMinutesFor,
   DEFAULT_THRESHOLDS,
 } from '../www/model.js'
 import { dayKind, detailOf, fitnessLine, itemsForDay, rotationFor } from '../www/fitness.js'
@@ -17,8 +18,10 @@ import {
   busyIntervals,
   overlapMs,
   percentLabel,
+  startOfMonth,
   startOfWeek,
   summarize,
+  summarizeRange,
   formatDuration,
 } from '../www/stats.js'
 
@@ -231,6 +234,22 @@ check('时长文案 不足一小时', formatDuration(25 * 60000), '25 分钟')
 check('时长文案 零', formatDuration(0), '0 分钟')
 check('百分比 0', percentLabel(0), '0%')
 check('百分比 100', percentLabel(1), '100%')
+
+// 本月区间
+check('本月初', startOfMonth(nowAt), new Date('2026-11-01T00:00:00').getTime())
+const monthSummary = summarize(sessions, nowAt)
+check('本月已过 60 小时', monthSummary.month.elapsedMs, 60 * 3600000)
+check('本月忙碌 2 小时', monthSummary.month.busyMs, 2 * 3600000)
+const weekRange = summarizeRange(sessions, startOfWeek(nowAt), nowAt)
+check('summarizeRange 与 week 一致', weekRange.busyMs, monthSummary.week.busyMs)
+check('summarizeRange 与 week 占比一致', percentLabel(weekRange.percent), percentLabel(monthSummary.week.percent))
+
+/* ---------------- 提前提醒 ---------------- */
+check('任务自己的提前量优先', leadMinutesFor({ leadMinutes: 5 }, { leadMinutes: 30 }), 5)
+check('没设就退回全局', leadMinutesFor({ leadMinutes: null }, { leadMinutes: 30 }), 30)
+check('都没有就用 15', leadMinutesFor({}, {}), 15)
+check('0 视为没设置', leadMinutesFor({ leadMinutes: 0 }, { leadMinutes: 20 }), 20)
+check('负数视为没设置', leadMinutesFor({ leadMinutes: -5 }, {}), 15)
 
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed === 0 ? 0 : 1)

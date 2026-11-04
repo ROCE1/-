@@ -49,6 +49,11 @@
             android:name=".AlarmReceiver"
             android:exported="false" />
 
+        <!-- 常驻通知上的「繁忙 / 空闲」按钮 -->
+        <receiver
+            android:name=".BusyToggleReceiver"
+            android:exported="false" />
+
         <!-- 开机后把闹钟注册回去 -->
         <receiver
             android:name=".BootReceiver"

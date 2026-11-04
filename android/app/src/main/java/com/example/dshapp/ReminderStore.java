@@ -23,6 +23,10 @@ final class ReminderStore {
     private static final String KEY_TEXT = "panel_text";
     private static final String KEY_DONE = "panel_done";
     private static final String KEY_TOTAL = "panel_total";
+    private static final String KEY_PENDING_BUSY = "pending_busy";
+    private static final String KEY_PENDING_AT = "pending_busy_at";
+    private static final String KEY_WIDGET_COLOR = "widget_color";
+    private static final String KEY_WIDGET_OPACITY = "widget_opacity";
 
     private ReminderStore() {}
 
@@ -61,6 +65,43 @@ final class ReminderStore {
 
     static int progressTotal(Context context) {
         return prefs(context).getInt(KEY_TOTAL, 0);
+    }
+
+    /**
+     * 通知栏上的「繁忙 / 空闲」是原生先接的：这里记一笔“待补账”，
+     * 等前端下次启动/回到前台时取走，用它去写工作时段（sessions 只有前端能写）。
+     */
+    static void setPendingBusy(Context context, boolean busy, long at) {
+        prefs(context).edit().putBoolean(KEY_PENDING_BUSY, busy).putLong(KEY_PENDING_AT, at).apply();
+    }
+
+    static boolean hasPendingBusy(Context context) {
+        return prefs(context).contains(KEY_PENDING_BUSY);
+    }
+
+    static boolean pendingBusy(Context context) {
+        return prefs(context).getBoolean(KEY_PENDING_BUSY, false);
+    }
+
+    static long pendingBusyAt(Context context) {
+        return prefs(context).getLong(KEY_PENDING_AT, 0L);
+    }
+
+    static void clearPendingBusy(Context context) {
+        prefs(context).edit().remove(KEY_PENDING_BUSY).remove(KEY_PENDING_AT).apply();
+    }
+
+    /** 桌面小组件外观：颜色 #rrggbb + 不透明度 0..1。 */
+    static void setWidgetStyle(Context context, String color, float opacity) {
+        prefs(context).edit().putString(KEY_WIDGET_COLOR, color).putFloat(KEY_WIDGET_OPACITY, opacity).apply();
+    }
+
+    static String widgetColor(Context context) {
+        return prefs(context).getString(KEY_WIDGET_COLOR, "#171a21");
+    }
+
+    static float widgetOpacity(Context context) {
+        return prefs(context).getFloat(KEY_WIDGET_OPACITY, 0.95f);
     }
 
     static synchronized void putAlarm(Context context, JSONObject alarm) {

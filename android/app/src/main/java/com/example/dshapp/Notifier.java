@@ -55,8 +55,8 @@ final class Notifier {
         manager.createNotificationChannel(soft);
     }
 
-    /** 常驻通知：锁屏可见、不可滑动清除；total > 0 时带完成进度条。 */
-    static Notification ongoing(Context context, String title, String text, int done, int total) {
+    /** 常驻通知：锁屏可见、不可滑动清除；带完成进度条和「繁忙 / 空闲」按钮。 */
+    static Notification ongoing(Context context, String title, String text, int done, int total, boolean busy) {
         PendingIntent content = openApp(context, 0);
 
         Notification.Builder builder = builder(context, CHANNEL_ONGOING)
@@ -74,6 +74,15 @@ final class Notifier {
         if (total > 0) {
             builder.setProgress(total, Math.max(0, Math.min(done, total)), false);
         }
+
+        // 不用打开 App 就能切状态；点完由 BusyToggleReceiver 立即刷新这条通知
+        Intent toggle = new Intent(context, BusyToggleReceiver.class);
+        toggle.setAction(BusyToggleReceiver.ACTION_TOGGLE_BUSY);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
+        PendingIntent toggleIntent = PendingIntent.getBroadcast(context, 1, toggle, flags);
+        builder.addAction(new Notification.Action.Builder(null, busy ? "切到空闲" : "切到繁忙", toggleIntent).build());
+
         return builder.build();
     }
 

@@ -61,6 +61,12 @@ export function startOfWeek(now = new Date()) {
   return date.getTime()
 }
 
+/** 本月 1 号 0 点。 */
+export function startOfMonth(now = new Date()) {
+  const date = new Date(now)
+  return new Date(date.getFullYear(), date.getMonth(), 1).getTime()
+}
+
 function bucket(intervals, fromMs, nowMs) {
   const elapsedMs = Math.max(0, nowMs - fromMs)
   const busyMs = Math.min(overlapMs(intervals, fromMs, nowMs), elapsedMs)
@@ -72,13 +78,20 @@ function bucket(intervals, fromMs, nowMs) {
   }
 }
 
-/** 今日 / 本周两份占比。 */
+/** 任意起点到现在的占比（统计页切「本周 / 本月」用）。 */
+export function summarizeRange(sessions, fromMs, now = new Date()) {
+  const nowMs = now.getTime()
+  return bucket(busyIntervals(sessions, nowMs), fromMs, nowMs)
+}
+
+/** 今日 / 本周 / 本月三份占比。 */
 export function summarize(sessions, now = new Date()) {
   const nowMs = now.getTime()
   const intervals = busyIntervals(sessions, nowMs)
   return {
     today: bucket(intervals, startOfDay(now), nowMs),
     week: bucket(intervals, startOfWeek(now), nowMs),
+    month: bucket(intervals, startOfMonth(now), nowMs),
   }
 }
 

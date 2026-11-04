@@ -230,6 +230,13 @@ async function main() {
     await waitFor(() => evaluate(`document.body.innerText.includes('已完成 1 / 2')`), { label: '任务完成计数' })
     check('任务勾选后计数更新', true)
 
+    // 繁忙 / 空闲切换（顺手给统计页造一条 session）
+    await evaluate(`document.querySelector('#busy-toggle').click()`)
+    await waitFor(() => evaluate(`document.querySelector('#busy-toggle').textContent === '繁忙中'`), { label: '切到繁忙' })
+    await evaluate(`document.querySelector('#busy-toggle').click()`)
+    await waitFor(() => evaluate(`document.querySelector('#busy-toggle').textContent === '空闲'`), { label: '切回空闲' })
+    check('繁忙/空闲开关可用', true)
+
     // 健身页：轮换页签 + 新建一条力量项
     await evaluate(`document.querySelector('[data-tab="fitness"]').click()`)
     await waitFor(() => evaluate(`!!document.querySelector('.segmented')`), { label: '健身页' })
@@ -267,6 +274,43 @@ async function main() {
     await waitFor(() => evaluate(`document.body.innerText.includes('每日总结')`), { label: '记录页' })
     check('记录页有每日总结与记录卡', await evaluate(`document.body.innerText.includes('记录卡')`))
 
+    // 写一张带标签的记录卡，然后按关键词 / 标签检索
+    await evaluate(`Array.from(document.querySelectorAll('#view button')).find((b) => b.textContent === '写一张记录卡').click()`)
+    await waitFor(() => evaluate(`document.querySelector('#card-dialog')?.open === true`), { label: '记录卡弹窗' })
+    await evaluate(`
+      document.querySelector('#card-form [name="title"]').value = '检索用卡片'
+      document.querySelector('#card-form [name="body"]').value = '这是一条用于检索的正文'
+      document.querySelector('#card-form [name="tags"]').value = '冒烟,检索'
+      document.querySelector('#card-form').requestSubmit()
+    `)
+    await waitFor(() => evaluate(`document.body.innerText.includes('检索用卡片')`), { label: '记录卡保存' })
+    check('记录卡可新建', true)
+
+    await evaluate(`
+      (() => {
+        const searchBox = document.querySelector('#view input[type="search"]')
+        searchBox.value = '不存在的关键词'
+        searchBox.dispatchEvent(new Event('input', { bubbles: true }))
+      })()
+    `)
+    await waitFor(() => evaluate(`document.body.innerText.includes('没有匹配的记录卡')`), { label: '关键词过滤' })
+    check('记录卡关键词检索', true)
+
+    await evaluate(`
+      (() => {
+        const searchBox = document.querySelector('#view input[type="search"]')
+        searchBox.value = '检索用'
+        searchBox.dispatchEvent(new Event('input', { bubbles: true }))
+      })()
+    `)
+    await waitFor(() => evaluate(`document.body.innerText.includes('检索用卡片')`), { label: '检索命中' })
+
+    await evaluate(
+      `Array.from(document.querySelectorAll('#view .tag-chip')).find((b) => b.textContent === '#冒烟').click()`,
+    )
+    await waitFor(() => evaluate(`document.querySelectorAll('#view .tag-chip.active').length === 1`), { label: '标签过滤' })
+    check('记录卡标签过滤', true)
+
     // 写一篇总结，页面应立即出现
     await evaluate(`document.querySelector('#view .ghost')?.click()`)
     await waitFor(() => evaluate(`document.querySelector('#summary-dialog')?.open === true`), { label: '总结弹窗' })
@@ -283,6 +327,22 @@ async function main() {
     const statsText = await evaluate(`document.querySelector('#view').innerText`)
     check('统计页有今日/本周环图', statsText.includes('今日') && statsText.includes('本周') && statsText.includes('%'), statsText.slice(0, 80))
     check('统计页有明细行', statsText.includes('今日工作') && statsText.includes('本周空闲'))
+
+    // 本周 / 本月切换
+    await evaluate(`Array.from(document.querySelectorAll('#view .seg')).find((b) => b.textContent === '本月').click()`)
+    await waitFor(() => evaluate(`document.querySelector('#view').innerText.includes('本月工作')`), { label: '切到本月' })
+    check('统计可切到本月', true)
+
+    // 清空时间记录（confirm 直接放行）
+    const recorded = await evaluate(`(document.querySelector('#view').innerText.match(/已记录 (\\d+) 段/) || [])[1] || '0'`)
+    check('繁忙开关留下了时间记录', Number(recorded) >= 1, `记录段数 ${recorded}`)
+    await evaluate(`
+      window.confirm = () => true
+      window.alert = (message) => { window.__lastAlert = String(message) }
+      Array.from(document.querySelectorAll('#view button')).find((b) => b.textContent === '清空时间记录').click()
+    `)
+    await waitFor(() => evaluate(`document.body.innerText.includes('已记录 0 段')`), { label: '清空时间记录' })
+    check('清空后记录归零', true)
 
     // 设置页
     await evaluate(`document.querySelector('[data-tab="settings"]').click()`)
@@ -337,6 +397,45 @@ async function main() {
       { label: '恢复默认背景' },
     )
     check('恢复默认会清掉背景', true)
+
+    // 导入备份：造一份 JSON，走真实的文件选择 → 覆盖 → 页面出现
+    await evaluate(`
+      (() => {
+        const payload = {
+          version: 2,
+          data: {
+            cards: [
+              {
+                id: 'imported-1',
+                createdAt: new Date().toISOString(),
+                title: '导入的卡片',
+                body: '来自备份',
+                tags: ['备份'],
+              },
+            ],
+          },
+        }
+        const file = new File([JSON.stringify(payload)], 'backup.json', { type: 'application/json' })
+        const transfer = new DataTransfer()
+        transfer.items.add(file)
+        const input = Array.from(document.querySelectorAll('#view input[type="file"]')).find((node) =>
+          String(node.accept || '').includes('json'),
+        )
+        input.files = transfer.files
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+      })()
+    `)
+    await sleep(1200)
+    const importAlert = await evaluate(`window.__lastAlert || '(没有弹窗)'`)
+    await evaluate(`document.querySelector('[data-tab="records"]').click()`)
+    await waitFor(() => evaluate(`document.body.innerText.includes('检索条件') || document.querySelector('#view input[type="search"]') !== null`), {
+      label: '记录页重新渲染',
+    })
+    // 记录页还留着上一次的检索条件，先清掉再看导入结果
+    await evaluate(`Array.from(document.querySelectorAll('#view button')).find((b) => b.textContent === '清空')?.click()`)
+    await sleep(300)
+    const recordsText = await evaluate(`document.querySelector('#view').innerText`)
+    check('导入后记录页能看到卡片', recordsText.includes('导入的卡片'), `${importAlert} / ${recordsText.slice(0, 120)}`)
 
     const errors = await evaluate('window.__errors')
     check('页面没有 JS 报错', Array.isArray(errors) && errors.length === 0, JSON.stringify(errors))

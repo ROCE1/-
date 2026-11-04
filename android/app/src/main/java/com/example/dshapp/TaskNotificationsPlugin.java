@@ -46,11 +46,33 @@ public class TaskNotificationsPlugin extends Plugin {
         ReminderStore.setBusy(getContext(), Boolean.TRUE.equals(busy));
         ReminderStore.setPanel(getContext(), title, text);
         ReminderStore.setProgress(getContext(), doneCount, totalCount);
+
+        // 小组件外观（可空）：只在前端传了值的时候覆盖，避免把用户设置冲掉
+        String widgetColor = call.getString("widgetColor");
+        Double widgetOpacity = call.getDouble("widgetOpacity");
+        if (widgetColor != null && widgetOpacity != null) {
+            ReminderStore.setWidgetStyle(getContext(), widgetColor, widgetOpacity.floatValue());
+        }
+
         TaskForegroundService.update(getContext(), title, text, doneCount, totalCount);
         // 桌面小组件跟常驻通知同源，一起刷新
         TaskWidgetProvider.refresh(getContext());
 
         call.resolve();
+    }
+
+    /** 前端取走通知栏上那次「繁忙 / 空闲」点击（取一次就清空）。 */
+    @PluginMethod
+    public void consumeBusyToggle(PluginCall call) {
+        if (!ReminderStore.hasPendingBusy(getContext())) {
+            call.resolve();
+            return;
+        }
+        JSObject result = new JSObject();
+        result.put("busy", ReminderStore.pendingBusy(getContext()));
+        result.put("at", ReminderStore.pendingBusyAt(getContext()));
+        ReminderStore.clearPendingBusy(getContext());
+        call.resolve(result);
     }
 
     @PluginMethod

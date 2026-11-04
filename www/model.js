@@ -133,3 +133,15 @@ export function moveInList(ids, id, delta) {
   next.splice(to, 0, id)
   return next
 }
+
+/**
+ * 截止提醒提前量（分钟）：任务自己的设置优先，其次全局默认，最后兜底 15 分钟。
+ * 0 / 负数 / 非数字都视为“没设置”。
+ */
+export function leadMinutesFor(task, settings) {
+  const own = Number(task?.leadMinutes)
+  if (Number.isFinite(own) && own > 0) return own
+  const global = Number(settings?.leadMinutes)
+  if (Number.isFinite(global) && global > 0) return global
+  return 15
+}

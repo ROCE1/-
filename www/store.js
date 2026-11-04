@@ -86,9 +86,12 @@ export function clear(storeName) {
 export const DEFAULT_SETTINGS = {
   summaryTime: '22:00',
   countdownThresholds: { green: 48, yellow: 12, orange: 4, red: 1 },
+  leadMinutes: 15, // 截止提前提醒的全局默认值（任务里可单独覆盖）
   fitnessReminders: [],
   fitnessAnchor: '', // 健身轮换基准日，首次打开健身页时写入
   fitnessOverride: null, // { date, day }：当天手动切换，跨天自动失效
+  widgetColor: '#171a21', // 安卓桌面小组件背景色
+  widgetOpacity: 0.95,
   lockScreenEnabled: true,
   busy: false,
 }
@@ -189,7 +192,8 @@ export async function migrateFitnessTasks() {
 export async function loadBackground() {
   const row = await getOne('settings', 'background')
   const value = row?.value
-  if (!value?.blob) return null
+  // 导入的备份里可能是 dataUrl（还没转回 Blob），这里只认真正的 Blob
+  if (!(value?.blob instanceof Blob)) return null
   return {
     blob: value.blob,
     opacity: typeof value.opacity === 'number' ? value.opacity : 0.45,
@@ -217,9 +221,44 @@ export async function clearBackground() {
 
 /* ---------- 备份 ---------- */
 
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
+function dataUrlToBlob(dataUrl) {
+  const [meta, body] = String(dataUrl).split(',')
+  const mime = /:(.*?);/.exec(meta)?.[1] || 'image/webp'
+  const binary = atob(body || '')
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type: mime })
+}
+
+/**
+ * 导出全部数据。
+ * 背景图是 Blob，JSON 存不下，所以单独转成 dataURL —— 否则备份“看着成功、恢复后背景没了”。
+ */
 export async function exportAll() {
   const data = {}
   for (const name of STORES) data[name] = await getAll(name)
+
+  data.settings = await Promise.all(
+    data.settings.map(async (row) => {
+      if (row.key === 'background' && row.value?.blob instanceof Blob) {
+        return {
+          key: 'background',
+          value: { ...row.value, blob: null, dataUrl: await blobToDataUrl(row.value.blob) },
+        }
+      }
+      return row
+    }),
+  )
+
   return { version: 2, exportedAt: new Date().toISOString(), data }
 }
 
@@ -228,6 +267,14 @@ export async function importAll(payload) {
   for (const name of STORES) {
     if (!Array.isArray(data[name])) continue
     await clear(name)
-    for (const row of data[name]) await put(name, row)
+    for (const row of data[name]) {
+      // 背景图：把 dataURL 还原成 Blob 再落库
+      if (name === 'settings' && row?.key === 'background' && typeof row.value?.dataUrl === 'string') {
+        const { dataUrl, ...rest } = row.value
+        await put(name, { key: 'background', value: { ...rest, blob: dataUrlToBlob(dataUrl) } })
+        continue
+      }
+      await put(name, row)
+    }
   }
 }
