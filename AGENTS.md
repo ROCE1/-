@@ -96,6 +96,13 @@ core.sshCommand  ssh -i D:/dev/.ssh/id_ed25519_dshapp -o IdentitiesOnly=yes -o U
 - 密钥在 `D:\dev\.ssh\`，**不放 `~/.ssh`**：用户目录是中文（杜方舟），OpenSSH 处理该路径会编码错乱
 - 公钥已加到 GitHub 账号（`dsh-app@windows`），推送无需密码
 - 本仓库 git 身份是 `dsh-app <dsh-app@local>`（全局没设）
+- **2026-11-04 踩到：`ssh.github.com`（20.205.243.160:443）会回 “Connection reset”。**
+  GitHub 的其他入口仍然通，直接换 IP 推即可（密钥、known_hosts 都复用）：
+  ```bash
+  git push ssh://git@140.82.112.36:443/ROCE1/-.git main
+  git push ssh://git@140.82.112.36:443/ROCE1/-.git vX.Y.Z
+  # 备用：140.82.114.36；先验证再推：ssh -p 443 -T git@140.82.112.36
+  ```
 
 ## 更新机制（重要）
 
