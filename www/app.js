@@ -1,15 +1,28 @@
-import { dateKey, countdown, hasAnyTask, leadMinutesFor, moveInList, projectDay, weekdayOf } from './model.js'
+import {
+  dateKey,
+  countdown,
+  hasAnyTask,
+  leadMinutesFor,
+  moveInList,
+  nearestDeadline,
+  projectDay,
+  weekdayOf,
+  TYPE_ORDER,
+} from './model.js'
 import * as store from './store.js'
 import * as native from './native.js'
 import { apply as applyTheme, current as currentTheme, list as listThemes } from './themes.js'
-import { DAY_LABEL, dayKind, detailOf, fitnessLine, itemsForDay, rotationFor } from './fitness.js'
+import { DAY_LABEL, dayKind, detailOf, itemsForDay, rotationFor } from './fitness.js'
 import { monthDays, monthMatrix, monthTitle, shiftMonth } from './calendar.js'
 import { formatDuration, percentLabel, startOfDay, startOfMonth, startOfWeek, summarizeRange } from './stats.js'
 
 const SOURCE = { owner: 'ROCE1', repo: '-', mirror: 'https://gh-proxy.com/' }
 const WEEK_LABEL = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-const TASK_TYPES = ['urgent', 'main', 'side']
-const TYPE_LABEL = { urgent: '紧急', main: '主线', side: '支线' }
+// 紧急 → 支线 → 日常 → 主线（界面和通知都用这个顺序）
+const TASK_TYPES = TYPE_ORDER
+const TYPE_LABEL = { urgent: '紧急', side: '支线', daily: '日常', main: '主线' }
+// 主线和日常是常挂任务：表单里不显示截止/重复/提醒这些选项
+const ALWAYS_ON_TYPES = ['main', 'daily']
 const MAX_BG_EDGE = 1600
 
 const state = {
@@ -67,22 +80,12 @@ async function reload() {
 
 /* ---------------- 原生通知与闹钟 ---------------- */
 
-// 常驻通知最多显示 5 行任务（健身另起一行）
-const MAX_PANEL_LINES = 5
-
+// 常驻通知只显示一行：最早到期的那个任务（主线不上横幅）
 function panelLines(groups) {
-  const lines = []
-  for (const type of TASK_TYPES) {
-    for (const entry of groups[type]) {
-      if (entry.done) continue
-      const info = entry.task.deadline
-        ? countdown(entry.task.deadline, new Date(), state.settings?.countdownThresholds)
-        : null
-      lines.push(`${TYPE_LABEL[type]} ${entry.task.title}${info ? ` · ${info.label}` : ''}`)
-      if (lines.length >= MAX_PANEL_LINES) return lines
-    }
-  }
-  return lines
+  const nearest = nearestDeadline(groups)
+  if (!nearest) return []
+  const info = countdown(nearest.entry.task.deadline, new Date(), state.settings?.countdownThresholds)
+  return [`${TYPE_LABEL[nearest.type]} ${nearest.entry.task.title}${info ? ` · ${info.label}` : ''}`]
 }
 
 /**
@@ -94,16 +97,13 @@ async function refreshNotifications() {
   const groups = projectDay(state.tasks, state.done, state.date)
   const busy = Boolean(state.settings?.busy)
   const lines = panelLines(groups)
-  const kind = dayKind(state.settings, state.date)
-  const fitLine = fitnessLine(state.fitness, kind, state.date, state.done)
-  if (fitLine) lines.push(fitLine)
 
   const total = TASK_TYPES.reduce((sum, type) => sum + groups[type].length, 0)
   const doneCount = TASK_TYPES.reduce((sum, type) => sum + groups[type].filter((i) => i.done).length, 0)
 
   await native.syncState({
     title: total > 0 ? `${busy ? '繁忙中' : '空闲'} · 今日任务 ${doneCount}/${total}` : `${busy ? '繁忙中' : '空闲'} · 今日任务`,
-    text: lines.length ? lines.join('\n') : '今天还没有任务',
+    text: lines.length ? lines.join('\n') : '暂无带倒计时的任务',
     busy,
     progressDone: doneCount,
     progressTotal: total,
@@ -837,6 +837,21 @@ function syncFitnessFields() {
   for (const field of $$('#fitness-form [data-frepeat]')) field.hidden = field.dataset.frepeat !== kind
 }
 
+/** 主线和日常是常挂任务：把重复、倒计时、提醒这些选项都收起来，页面更清爽。 */
+function syncTypeFields() {
+  const form = $('#task-form')
+  if (!form) return
+  const type = form.elements.type.value
+  const alwaysOn = ALWAYS_ON_TYPES.includes(type)
+
+  for (const field of $$('#task-form [data-adv]')) field.hidden = alwaysOn
+  const hint = $('#task-always-on-hint')
+  if (hint) hint.hidden = !alwaysOn
+
+  if (alwaysOn) for (const field of $$('#task-form [data-repeat]')) field.hidden = true
+  else syncRepeatFields()
+}
+
 function fillForm(task) {
   const form = $('#task-form')
   form.reset()
@@ -847,7 +862,10 @@ function fillForm(task) {
       : `新建任务 · ${state.editorDate}`
   form.elements.onceDate.value = state.editorDate
   syncRepeatFields()
-  if (!task) return
+  if (!task) {
+    syncTypeFields()
+    return
+  }
 
   form.elements.title.value = task.title
   form.elements.type.value = task.type
@@ -863,7 +881,7 @@ function fillForm(task) {
       option.selected = task.repeat.days.includes(Number(option.value))
     }
   }
-  syncRepeatFields()
+  syncTypeFields()
 }
 
 function openEditor(task, date) {
@@ -875,6 +893,23 @@ function openEditor(task, date) {
 
 function readForm() {
   const form = $('#task-form')
+  const type = form.elements.type.value
+  const normalizedType = TASK_TYPES.includes(type) ? type : 'main'
+  const alwaysOn = ALWAYS_ON_TYPES.includes(normalizedType)
+
+  // 常挂任务：不写重复规则明细、不要截止/提醒，避免表单收起后还残留旧值
+  if (alwaysOn) {
+    return {
+      title: form.elements.title.value.trim(),
+      type: normalizedType,
+      repeat: { kind: 'daily' },
+      deadline: null,
+      strong: false,
+      leadMinutes: null,
+      notes: form.elements.notes.value.trim(),
+    }
+  }
+
   const kind = form.elements.repeatKind.value
   let repeat
   if (kind === 'once') repeat = { kind, date: form.elements.onceDate.value || state.editorDate }
@@ -886,12 +921,10 @@ function readForm() {
   } else repeat = { kind: 'daily' }
 
   const deadlineValue = form.elements.deadline.value
-  const type = form.elements.type.value
   const leadMinutes = Number(form.elements.leadMinutes.value)
   return {
     title: form.elements.title.value.trim(),
-    // 老数据里可能还留着 fitness 类型（正常已被迁移），兜底成主线，避免任务“存了但看不见”
-    type: TASK_TYPES.includes(type) ? type : 'main',
+    type: normalizedType,
     repeat,
     deadline: deadlineValue ? new Date(deadlineValue).toISOString() : null,
     strong: form.elements.strong.checked,
@@ -1056,8 +1089,22 @@ async function loadBackground() {
 }
 
 /** 小组件背景色，只接受 #rrggbb（原生侧用 Color.parseColor 解析）。 */
-function normalizeHex(value) {
-  return /^#[0-9a-fA-F]{6}$/.test(String(value || '')) ? String(value).toLowerCase() : '#171a21'
+function normalizeHex(value, fallback = '#171a21') {
+  return /^#[0-9a-fA-F]{6}$/.test(String(value || '')) ? String(value).toLowerCase() : fallback
+}
+
+const FONT_SCALES = { small: 0.9, normal: 1, large: 1.15, xlarge: 1.3 }
+const TYPE_COLOR_FALLBACK = { urgent: '#f87171', side: '#fb923c', daily: '#4ade80', main: '#4c8dff' }
+
+/** 把字号 / 字重 / 分类颜色写到 CSS 变量上（样式表里全是 rem 和 var）。 */
+function applyAppearance() {
+  const root = document.documentElement.style
+  root.setProperty('--fs', String(FONT_SCALES[state.settings?.fontSize] ?? 1))
+  root.setProperty('--task-weight', state.settings?.fontWeight === 'bold' ? '600' : '400')
+  const colors = state.settings?.typeColors || {}
+  for (const type of TASK_TYPES) {
+    root.setProperty(`--type-${type}`, normalizeHex(colors[type], TYPE_COLOR_FALLBACK[type]))
+  }
 }
 
 function widgetOpacityValue() {
@@ -1249,11 +1296,151 @@ async function installUpdate() {
 
 /* ---------------- 设置 ---------------- */
 
+function segmentedRow(label, options, current, onPick) {
+  const row = el('div', 'setting-row')
+  row.appendChild(el('span', 'setting-label', label))
+  const seg = el('div', `segmented compact seg-${options.length}`)
+  for (const [value, text] of options) {
+    const button = el('button', `seg${value === current ? ' active' : ''}`, text)
+    button.type = 'button'
+    button.addEventListener('click', () => onPick(value, seg, button))
+    seg.appendChild(button)
+  }
+  row.appendChild(seg)
+  return row
+}
+
+function appearanceCard() {
+  const card = el('section', 'card')
+  card.appendChild(el('div', 'field-label', '外观'))
+
+  card.appendChild(
+    segmentedRow(
+      '字体大小',
+      [
+        ['small', '小'],
+        ['normal', '标准'],
+        ['large', '大'],
+        ['xlarge', '特大'],
+      ],
+      state.settings.fontSize || 'normal',
+      async (value, seg, button) => {
+        state.settings.fontSize = value
+        await store.saveSetting('fontSize', value)
+        applyAppearance()
+        for (const node of seg.children) node.classList.toggle('active', node === button)
+      },
+    ),
+  )
+
+  card.appendChild(
+    segmentedRow(
+      '字体粗细',
+      [
+        ['normal', '常规'],
+        ['bold', '加粗'],
+      ],
+      state.settings.fontWeight || 'normal',
+      async (value, seg, button) => {
+        state.settings.fontWeight = value
+        await store.saveSetting('fontWeight', value)
+        applyAppearance()
+        for (const node of seg.children) node.classList.toggle('active', node === button)
+      },
+    ),
+  )
+
+  card.appendChild(el('div', 'field-label', '任务块颜色'))
+  for (const type of TASK_TYPES) {
+    const row = el('label', 'type-color-row')
+    row.appendChild(el('span', 'setting-label', TYPE_LABEL[type]))
+    const input = document.createElement('input')
+    input.type = 'color'
+    input.value = normalizeHex(state.settings.typeColors?.[type], TYPE_COLOR_FALLBACK[type])
+    input.addEventListener('change', async () => {
+      state.settings.typeColors = { ...(state.settings.typeColors || {}), [type]: input.value }
+      await store.saveSetting('typeColors', state.settings.typeColors)
+      applyAppearance()
+    })
+    row.appendChild(input)
+    card.appendChild(row)
+  }
+  card.appendChild(el('div', 'muted', '颜色用在任务块标题和任务卡片左侧的色条上。'))
+  return card
+}
+
+function soundCard() {
+  const card = el('section', 'card')
+  card.appendChild(el('div', 'field-label', '提醒音乐'))
+  const status = el(
+    'div',
+    'muted',
+    state.settings.alarmSoundName ? `当前：${state.settings.alarmSoundName}` : '当前：系统默认闹铃',
+  )
+  card.appendChild(status)
+  card.appendChild(el('div', 'muted', '强提醒到点后会循环播放，点「停止提醒」才停。'))
+
+  const file = document.createElement('input')
+  file.type = 'file'
+  file.accept = 'audio/*'
+  file.hidden = true
+  card.appendChild(file)
+
+  const actions = el('div', 'actions')
+  const choose = el('button', 'primary', '选择音频')
+  choose.type = 'button'
+  choose.addEventListener('click', () => file.click())
+
+  const reset = el('button', 'ghost', '恢复默认')
+  reset.type = 'button'
+  reset.disabled = !state.settings.alarmSoundName
+  reset.addEventListener('click', async () => {
+    await native.clearAlarmSound()
+    state.settings.alarmSoundName = ''
+    await store.saveSetting('alarmSoundName', '')
+    await render()
+  })
+  actions.append(choose, reset)
+  card.appendChild(actions)
+
+  file.addEventListener('change', async () => {
+    const picked = file.files?.[0]
+    file.value = ''
+    if (!picked) return
+    if (picked.size > 8 * 1024 * 1024) {
+      window.alert('音频太大了（限 8 MB），换一首小一点的吧')
+      return
+    }
+    choose.disabled = true
+    status.textContent = '保存中…'
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result))
+        reader.onerror = () => reject(reader.error)
+        reader.readAsDataURL(picked)
+      })
+      const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+      const result = await native.saveAlarmSound({ data: base64, name: picked.name })
+      if (!result?.ok) throw new Error('原生侧没有保存成功')
+      state.settings.alarmSoundName = picked.name
+      await store.saveSetting('alarmSoundName', picked.name)
+      await render()
+    } catch (error) {
+      status.textContent = `保存失败：${error.message}`
+      choose.disabled = false
+    }
+  })
+
+  return card
+}
+
 function renderSettings() {
   const view = $('#view')
   view.replaceChildren()
   $('#today-summary').textContent = '设置'
 
+  view.appendChild(appearanceCard())
   view.appendChild(backgroundCard())
 
   // 主题（皮肤）选择：皮肤注册表在 www/themes.js，运行时可用 window.LYTheme 扩展
@@ -1434,6 +1621,8 @@ function renderSettings() {
       el('div', 'muted', '荣耀/华为还需在「应用启动管理」里允许自启动，否则提醒可能被系统延迟。'),
     )
     view.appendChild(notifyCard)
+
+    view.appendChild(soundCard())
 
     // 桌面小组件的外观（仅安卓）：颜色 + 不透明度，跟着 syncState 一起下发给原生
     const widgetCard = el('section', 'card')
@@ -1691,6 +1880,7 @@ async function boot() {
   const migrated = await store.migrateFitnessTasks()
   if (migrated) await reload()
   await ensureFitnessAnchor()
+  applyAppearance()
   await loadBackground()
   // 上次在通知栏上点的「繁忙/空闲」可能还没记账
   await syncBusyFromNotification()
@@ -1720,6 +1910,7 @@ async function boot() {
 
   $('#cancel-task').addEventListener('click', () => $('#task-dialog').close())
   $('#repeat-kind').addEventListener('change', syncRepeatFields)
+  $('#task-type').addEventListener('change', syncTypeFields)
 
   $('#cancel-fitness').addEventListener('click', () => $('#fitness-dialog').close())
   $('#fitness-day').addEventListener('change', syncFitnessFields)

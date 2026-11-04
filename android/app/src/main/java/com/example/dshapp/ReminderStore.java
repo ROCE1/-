@@ -27,6 +27,8 @@ final class ReminderStore {
     private static final String KEY_PENDING_AT = "pending_busy_at";
     private static final String KEY_WIDGET_COLOR = "widget_color";
     private static final String KEY_WIDGET_OPACITY = "widget_opacity";
+    private static final String KEY_SOUND_PATH = "alarm_sound_path";
+    private static final String KEY_SOUND_NAME = "alarm_sound_name";
 
     private ReminderStore() {}
 
@@ -131,6 +133,23 @@ final class ReminderStore {
 
     static float widgetOpacity(Context context) {
         return prefs(context).getFloat(KEY_WIDGET_OPACITY, 0.95f);
+    }
+
+    /** 自定义提醒音乐：文件路径 + 原始文件名（空 = 用系统默认闹铃）。 */
+    static void setAlarmSound(Context context, String path, String name) {
+        prefs(context).edit().putString(KEY_SOUND_PATH, path).putString(KEY_SOUND_NAME, name).apply();
+    }
+
+    static String alarmSoundPath(Context context) {
+        return prefs(context).getString(KEY_SOUND_PATH, null);
+    }
+
+    static String alarmSoundName(Context context) {
+        return prefs(context).getString(KEY_SOUND_NAME, "");
+    }
+
+    static void clearAlarmSound(Context context) {
+        prefs(context).edit().remove(KEY_SOUND_PATH).remove(KEY_SOUND_NAME).apply();
     }
 
     static synchronized void putAlarm(Context context, JSONObject alarm) {

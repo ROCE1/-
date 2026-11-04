@@ -7,6 +7,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.util.Base64;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -18,6 +19,9 @@ import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
 import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileOutputStream;
 
 /**
  * 前端与原生通知/闹钟之间的桥。
@@ -86,6 +90,63 @@ public class TaskNotificationsPlugin extends Plugin {
     @PluginMethod
     public void stopPanel(PluginCall call) {
         TaskForegroundService.stop(getContext());
+        call.resolve();
+    }
+
+    /** 当前自定义提醒音乐的文件名（空 = 系统默认闹铃）。 */
+    @PluginMethod
+    public void alarmSoundInfo(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("name", ReminderStore.alarmSoundName(getContext()));
+        call.resolve(result);
+    }
+
+    /** 保存前端选中的音频（base64），下次强提醒响铃时循环播放。 */
+    @PluginMethod
+    public void saveAlarmSound(PluginCall call) {
+        String data = call.getString("data");
+        String name = call.getString("name", "reminder.mp3");
+        if (data == null || data.isEmpty()) {
+            call.reject("音频内容为空");
+            return;
+        }
+        try {
+            byte[] bytes = Base64.decode(data, Base64.DEFAULT);
+            File dir = new File(getContext().getFilesDir(), "sounds");
+            if (!dir.exists() && !dir.mkdirs()) {
+                call.reject("无法创建音频目录");
+                return;
+            }
+            // 只留一份：换音乐时把旧的删掉，避免占空间
+            File[] olds = dir.listFiles();
+            if (olds != null) {
+                for (File old : olds) old.delete();
+            }
+            String ext = name.contains(".") ? name.substring(name.lastIndexOf('.') + 1).toLowerCase() : "mp3";
+            if (!ext.matches("[a-z0-9]{1,5}")) ext = "mp3";
+            File file = new File(dir, "reminder." + ext);
+            FileOutputStream out = new FileOutputStream(file);
+            out.write(bytes);
+            out.close();
+
+            ReminderStore.setAlarmSound(getContext(), file.getAbsolutePath(), name);
+            JSObject result = new JSObject();
+            result.put("ok", true);
+            result.put("name", name);
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("保存音频失败：" + error.getMessage());
+        }
+    }
+
+    /** 恢复系统默认闹铃。 */
+    @PluginMethod
+    public void clearAlarmSound(PluginCall call) {
+        File[] olds = new File(getContext().getFilesDir(), "sounds").listFiles();
+        if (olds != null) {
+            for (File old : olds) old.delete();
+        }
+        ReminderStore.clearAlarmSound(getContext());
         call.resolve();
     }
 

@@ -14,9 +14,16 @@ import android.os.Build;
 final class Notifier {
     // 频道 id 带版本号：Android 不允许修改已创建频道的重要性，
     // 老用户升级后必须换新 id，否则锁屏可见性改了也白改。
-    static final String CHANNEL_ONGOING = "ongoing_v2";
-    static final String CHANNEL_STRONG = "strong_v2";
-    static final String CHANNEL_SOFT = "soft_v2";
+    // v3：强提醒改由 AlarmRingService 自己播放声音（这样才支持自定义提醒音乐），
+    //     频道本身静音；同时把历史频道删掉，避免系统通知设置里出现同名多份。
+    static final String CHANNEL_ONGOING = "ongoing_v3";
+    static final String CHANNEL_STRONG = "strong_v3";
+    static final String CHANNEL_SOFT = "soft_v3";
+
+    private static final String[] LEGACY_CHANNELS = {
+            "ongoing", "strong", "soft",
+            "ongoing_v2", "strong_v2", "soft_v2",
+    };
 
     static final int ID_ONGOING = 1001;
     static final int ID_RING = 1002;
@@ -29,6 +36,14 @@ final class Notifier {
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         if (manager == null) return;
 
+        // 旧频道只删不建：0.3.0~0.7.x 用过，留着会在“通知类别”里显示成同名重复项
+        for (String legacy : LEGACY_CHANNELS) {
+            try {
+                manager.deleteNotificationChannel(legacy);
+            } catch (Exception ignored) {
+            }
+        }
+
         // 常驻面板：用 DEFAULT 而不是 LOW —— 低重要性会被多数国内 ROM 从锁屏隐藏
         NotificationChannel ongoing = new NotificationChannel(
                 CHANNEL_ONGOING, "任务常驻", NotificationManager.IMPORTANCE_DEFAULT);
@@ -39,10 +54,11 @@ final class Notifier {
         ongoing.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         manager.createNotificationChannel(ongoing);
 
-        // 强提醒：震动由 AlarmRingService 自己循环，这里不再用频道震动（否则只响一下）
+        // 强提醒：声音和震动都由 AlarmRingService 自己来（否则没法自定义音乐）
         NotificationChannel strong = new NotificationChannel(
                 CHANNEL_STRONG, "强提醒", NotificationManager.IMPORTANCE_HIGH);
-        strong.setDescription("截止提醒：横幅 + 持续震动");
+        strong.setDescription("截止提醒：横幅 + 持续响铃震动");
+        strong.setSound(null, null);
         strong.enableVibration(false);
         strong.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         manager.createNotificationChannel(strong);

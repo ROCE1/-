@@ -159,6 +159,20 @@ core.sshCommand  ssh -i D:/dev/.ssh/id_ed25519_dshapp -o IdentitiesOnly=yes -o U
   `settings.leadMinutes`（默认 15），都没有才兜底 15 分钟。
 - **备份导入**：`store.exportAll()` 会把背景图 Blob 转成 dataURL（JSON 存不了 Blob），
   `importAll()` 再转回 Blob；导入只覆盖备份里存在的表，导入前必须让用户确认。
+- **任务类型**：`urgent` / `side` 可排期（重复、截止、提醒），`daily` / `main` 是常挂
+  （表单里收起这些选项，保存时强制 `repeat: {kind:'daily'}`、无截止）。分区顺序固定为
+  紧急 → 支线 → 日常 → 主线（`model.TYPE_ORDER`）。
+- **24 小时自动升级**：非常挂任务在截止前 24 小时内会被 `projectDay` 投到紧急区
+  （`model.escalatesToUrgent`），过期的一直留在紧急区；看历史日期时不升级。
+- **常驻通知只显示一条**：`model.nearestDeadline()` 在 紧急/支线/日常 里挑截止最近且未完成的那条，
+  主线永远不上横幅；健身行也不再塞进通知。
+- **外观**：`settings.fontSize` / `fontWeight` / `typeColors` 由 `applyAppearance()` 写到
+  `--fs`、`--task-weight`、`--type-*` 上；样式表里的字号全部是 `rem`（基准 15px），加新样式时请继续用 rem。
+- **自定义提醒音乐**：前端把音频读成 base64 交给 `saveAlarmSound`，原生存到
+  `filesDir/sounds/reminder.<ext>`；强提醒频道是静音的，声音由 `AlarmRingService` 用 MediaPlayer
+  循环播放（没设置就用系统闹铃），所以换音乐不需要动通知频道。
+- **通知频道 id 升到 `_v3`**：`Notifier.ensureChannels` 会先删掉 `ongoing/strong/soft` 和
+  `*_v2` 这些历史频道，否则系统「通知类别」里会出现同名重复项。
 - **通知与小组件同源**：常驻通知的标题/正文/进度/配色存在 `ReminderStore`（SharedPreferences），
   桌面小组件 `TaskWidgetProvider` 直接读它，所以 `syncState` 之后两边一定一致。
 - **通知栏的繁忙按钮**是原生先接的：`BusyToggleReceiver` 翻转状态并写一条 pending（含点击时刻），

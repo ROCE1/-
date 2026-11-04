@@ -230,6 +230,50 @@ async function main() {
     await waitFor(() => evaluate(`document.body.innerText.includes('已完成 1 / 2')`), { label: '任务完成计数' })
     check('任务勾选后计数更新', true)
 
+    // 四个分区：紧急 / 支线 / 日常 / 主线
+    const sectionText = await evaluate(`document.querySelector('#view').innerText`)
+    check(
+      '今日有四个分区',
+      ['紧急', '支线', '日常', '主线'].every((label) => sectionText.includes(label)),
+      sectionText.slice(0, 80),
+    )
+    const sectionOrder = await evaluate(
+      `Array.from(document.querySelectorAll('#view .group-title')).map((n) => n.textContent).join('|')`,
+    )
+    check('分区顺序 紧急→支线→日常→主线', sectionOrder === '紧急|支线|日常|主线', sectionOrder)
+
+    // 表单精简：日常/主线收起倒计时等选项，紧急/支线才显示
+    await evaluate(`document.querySelector('#add-task').click()`)
+    await waitFor(() => evaluate(`document.querySelector('#task-dialog')?.open === true`), { label: '任务弹窗' })
+    const advHiddenFor = async (type) => {
+      await evaluate(`
+        (() => {
+          const form = document.querySelector('#task-form')
+          form.elements.type.value = '${type}'
+          form.elements.type.dispatchEvent(new Event('change', { bubbles: true }))
+        })()
+      `)
+      return evaluate(`Array.from(document.querySelectorAll('#task-form [data-adv]')).every((n) => n.hidden)`)
+    }
+    check('日常类型收起提醒/倒计时选项', (await advHiddenFor('daily')) === true)
+    check('主线类型收起提醒/倒计时选项', (await advHiddenFor('main')) === true)
+    check('紧急类型展开全部选项', (await advHiddenFor('urgent')) === false)
+
+    // 顺手用「日常」建一条
+    await evaluate(`
+      (() => {
+        const form = document.querySelector('#task-form')
+        form.elements.type.value = 'daily'
+        form.elements.type.dispatchEvent(new Event('change', { bubbles: true }))
+        form.elements.title.value = '喝水'
+        form.requestSubmit()
+      })()
+    `)
+    await waitFor(() => evaluate(`document.querySelector('.group-daily')?.innerText.includes('喝水')`), {
+      label: '日常任务出现在日常分区',
+    })
+    check('可以新建日常任务', true)
+
     // 繁忙 / 空闲切换（顺手给统计页造一条 session）
     await evaluate(`document.querySelector('#busy-toggle').click()`)
     await waitFor(() => evaluate(`document.querySelector('#busy-toggle').textContent === '繁忙中'`), { label: '切到繁忙' })
@@ -350,6 +394,19 @@ async function main() {
     const settingsText = await evaluate(`document.querySelector('#view').innerText`)
     check('设置页有背景与主题', settingsText.includes('背景') && settingsText.includes('主题'))
     check('设置页有版本号', /版本 \d+\.\d+\.\d+/.test(settingsText), settingsText.slice(-60))
+
+    // 外观：切到「大」字号，html 的 font-size 应随之变化
+    const fontSizeBefore = await evaluate(`getComputedStyle(document.documentElement).fontSize`)
+    await evaluate(`Array.from(document.querySelectorAll('#view .seg')).find((b) => b.textContent === '大').click()`)
+    await waitFor(
+      async () => (await evaluate(`getComputedStyle(document.documentElement).fontSize`)) !== fontSizeBefore,
+      { label: '字号切换' },
+    )
+    check('字号可切换', true, `${fontSizeBefore} → ${await evaluate(`getComputedStyle(document.documentElement).fontSize`)}`)
+
+    // 颜色选择器存在（四个类型）
+    const colorInputs = await evaluate(`document.querySelectorAll('#view .type-color-row input[type="color"]').length`)
+    check('四种任务块颜色可调', colorInputs === 4, `颜色输入框 ${colorInputs} 个`)
 
     // 背景图：塞一张真实图片走完整条链路（缩图 → IndexedDB blob → CSS 变量 → 滑杆）
     await evaluate(`

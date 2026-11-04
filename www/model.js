@@ -77,21 +77,53 @@ export function countdown(deadlineIso, now = new Date(), thresholds = DEFAULT_TH
   return { level, ms, hours, label: formatRemaining(ms), overdue: ms < 0 }
 }
 
+/** 任务类型在界面/通知里的固定顺序：紧急 → 支线 → 日常 → 主线。 */
+export const TYPE_ORDER = ['urgent', 'side', 'daily', 'main']
+/** 只出现在常驻通知里的类型（主线不上横幅）。 */
+export const NOTIFY_TYPES = ['urgent', 'side', 'daily']
+
+const DAY_MS = 86400000
+
+/** 常挂任务：每天重复的（主线和日常默认就是这种）。 */
+export function isAlwaysOn(task) {
+  return task?.repeat?.kind === 'daily'
+}
+
 /**
- * 把任务投影到某一天：紧急 / 主线 / 支线 / 健身 四组，同级按截止时间升序（无截止的排后面）。
- * 健身已经拆成独立数据（见 fitness.js），这里保留 fitness 分组只是为了兼容迁移前的旧数据。
+ * 倒计时不足 24 小时的临时任务自动抬进「紧急」区。
+ * 常挂任务（每天重复）不参与提升，否则每天都会把列表顶满。
  */
-export function projectDay(tasks, occurrenceDone, key) {
-  const groups = { urgent: [], main: [], side: [], fitness: [] }
+export function escalatesToUrgent(task, nowMs = Date.now()) {
+  if (!task?.deadline) return false
+  if (isAlwaysOn(task)) return false
+  const due = new Date(task.deadline).getTime()
+  if (!Number.isFinite(due)) return false
+  return due - nowMs < DAY_MS
+}
+
+/**
+ * 把任务投影到某一天：紧急 / 支线 / 日常 / 主线 四组，同级按截止时间升序（无截止的排后面）。
+ * 健身已经拆成独立数据（见 fitness.js），这里保留 fitness 分组只是为了兼容迁移前的旧数据。
+ *
+ * nowMs 只在“今天”用来判断 24 小时内自动升级；看历史日期时保持原始类型。
+ */
+export function projectDay(tasks, occurrenceDone, key, nowMs = Date.now()) {
+  const groups = { urgent: [], side: [], daily: [], main: [], fitness: [] }
+  const isToday = key === dateKey(new Date(nowMs))
 
   for (const task of tasks) {
     if (task.archivedAt) continue
     if (!matchesDate(task.repeat, key)) continue
+
+    let type = task.type
+    if (isToday && type !== 'urgent' && escalatesToUrgent(task, nowMs)) type = 'urgent'
+
     const occKey = `${task.id}@${key}`
-    groups[task.type]?.push({
+    groups[type]?.push({
       task,
       occKey,
       done: Boolean(occurrenceDone?.[occKey]),
+      escalated: type !== task.type,
     })
   }
 
@@ -111,6 +143,23 @@ export function projectDay(tasks, occurrenceDone, key) {
 
   for (const type of Object.keys(groups)) groups[type].sort(sortByDeadline)
   return groups
+}
+
+/**
+ * 常驻通知只显示一行：在「紧急/支线/日常」里挑截止时间最近、且还没完成的那一条。
+ * 主线永远不上横幅。
+ */
+export function nearestDeadline(groups) {
+  let best = null
+  for (const type of NOTIFY_TYPES) {
+    for (const entry of groups[type] || []) {
+      if (entry.done || !entry.task.deadline) continue
+      const due = new Date(entry.task.deadline).getTime()
+      if (!Number.isFinite(due)) continue
+      if (!best || due < best.due) best = { type, entry, due }
+    }
+  }
+  return best
 }
 
 /** 某天到底有没有任务（日历打点用）。 */

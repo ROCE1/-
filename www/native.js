@@ -114,6 +114,38 @@ export async function openBatterySettings() {
   }
 }
 
+/** 自定义提醒音乐（只有安卓有）。 */
+export async function alarmSoundInfo() {
+  const api = plugin()
+  if (!api) return { name: '' }
+  try {
+    return (await api.alarmSoundInfo()) || { name: '' }
+  } catch {
+    return { name: '' }
+  }
+}
+
+export async function saveAlarmSound({ data, name }) {
+  const api = plugin()
+  if (!api) return { ok: false }
+  try {
+    return await api.saveAlarmSound({ data, name })
+  } catch (error) {
+    console.warn('[native] saveAlarmSound 失败', error)
+    return { ok: false }
+  }
+}
+
+export async function clearAlarmSound() {
+  const api = plugin()
+  if (!api) return null
+  try {
+    return await api.clearAlarmSound()
+  } catch {
+    return null
+  }
+}
+
 export async function openAppSettings() {
   const api = plugin()
   if (!api) return null

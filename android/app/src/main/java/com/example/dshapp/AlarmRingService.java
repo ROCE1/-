@@ -3,6 +3,10 @@ package com.example.dshapp;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.media.AudioAttributes;
+import android.media.MediaPlayer;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -10,6 +14,8 @@ import android.os.Looper;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
+
+import java.io.File;
 
 /**
  * 强提醒的震动循环。
@@ -28,6 +34,7 @@ public class AlarmRingService extends Service {
     private static final long[] PATTERN = new long[]{0, 700, 300, 700, 300, 1200};
 
     private Vibrator vibrator;
+    private MediaPlayer player;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable autoStop = new Runnable() {
         @Override
@@ -65,9 +72,61 @@ public class AlarmRingService extends Service {
         startForeground(Notifier.ID_RING, Notifier.ringing(this, id, title, body));
 
         startVibration();
+        startSound();
         handler.removeCallbacks(autoStop);
         handler.postDelayed(autoStop, MAX_RING_MS);
         return START_STICKY;
+    }
+
+    /**
+     * 响铃：有自定义音乐就循环播放它，否则用系统闹铃。
+     * 频道本身是静音的（见 Notifier），声音完全由这里控制，才能支持自定义音乐。
+     */
+    private void startSound() {
+        stopSound();
+        try {
+            Uri uri = resolveSoundUri();
+            if (uri == null) return;
+
+            MediaPlayer media = new MediaPlayer();
+            media.setAudioAttributes(new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build());
+            media.setDataSource(this, uri);
+            media.setLooping(true);
+            media.prepare();
+            media.start();
+            player = media;
+        } catch (Exception ignored) {
+            stopSound();
+        }
+    }
+
+    private Uri resolveSoundUri() {
+        String path = ReminderStore.alarmSoundPath(this);
+        if (path != null) {
+            File file = new File(path);
+            if (file.exists() && file.length() > 0) return Uri.fromFile(file);
+        }
+        Uri alarm = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+        if (alarm == null) alarm = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+        if (alarm == null) alarm = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+        return alarm;
+    }
+
+    private void stopSound() {
+        if (player != null) {
+            try {
+                player.stop();
+            } catch (Exception ignored) {
+            }
+            try {
+                player.release();
+            } catch (Exception ignored) {
+            }
+            player = null;
+        }
     }
 
     private void startVibration() {
@@ -88,6 +147,7 @@ public class AlarmRingService extends Service {
             if (vibrator != null) vibrator.cancel();
         } catch (Exception ignored) {
         }
+        stopSound();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE);
         } else {
@@ -103,6 +163,7 @@ public class AlarmRingService extends Service {
             if (vibrator != null) vibrator.cancel();
         } catch (Exception ignored) {
         }
+        stopSound();
         super.onDestroy();
     }
 

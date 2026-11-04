@@ -10,6 +10,8 @@ import {
   hasAnyTask,
   moveInList,
   leadMinutesFor,
+  escalatesToUrgent,
+  nearestDeadline,
   DEFAULT_THRESHOLDS,
 } from '../www/model.js'
 import { dayKind, detailOf, fitnessLine, itemsForDay, rotationFor } from '../www/fitness.js'
@@ -250,6 +252,44 @@ check('没设就退回全局', leadMinutesFor({ leadMinutes: null }, { leadMinut
 check('都没有就用 15', leadMinutesFor({}, {}), 15)
 check('0 视为没设置', leadMinutesFor({ leadMinutes: 0 }, { leadMinutes: 20 }), 20)
 check('负数视为没设置', leadMinutesFor({ leadMinutes: -5 }, {}), 15)
+
+/* ---------------- 24 小时内自动升级为紧急 ---------------- */
+const fixedNow = new Date('2026-11-04T12:00:00').getTime()
+const inHours = (h) => new Date(fixedNow + h * 3600000).toISOString()
+
+check('临时任务 20 小时内到期 → 升级', escalatesToUrgent({ deadline: inHours(20), repeat: { kind: 'once' } }, fixedNow), true)
+check('临时任务 30 小时后到期 → 不升级', escalatesToUrgent({ deadline: inHours(30), repeat: { kind: 'once' } }, fixedNow), false)
+check('常挂任务不升级', escalatesToUrgent({ deadline: inHours(2), repeat: { kind: 'daily' } }, fixedNow), false)
+check('没有截止不升级', escalatesToUrgent({ repeat: { kind: 'once' } }, fixedNow), false)
+check('已过期也算（会升级）', escalatesToUrgent({ deadline: inHours(-3), repeat: { kind: 'once' } }, fixedNow), true)
+
+const escalateTasks = [
+  { id: 'e1', title: '快到期', type: 'side', repeat: { kind: 'once', date: '2026-11-04' }, deadline: inHours(3) },
+  { id: 'e2', title: '还早', type: 'side', repeat: { kind: 'once', date: '2026-11-04' }, deadline: inHours(40) },
+  { id: 'e3', title: '常挂带截止', type: 'side', repeat: { kind: 'daily' }, deadline: inHours(1) },
+  { id: 'e4', title: '本来就是紧急', type: 'urgent', repeat: { kind: 'daily' } },
+]
+const escalated = projectDay(escalateTasks, {}, '2026-11-04', fixedNow)
+check('快到期的支线进了紧急区', escalated.urgent.map((e) => e.task.id).sort(), ['e1', 'e4'])
+check('还早的支线留在支线', escalated.side.map((e) => e.task.id).sort(), ['e2', 'e3'])
+check('升级项有标记', escalated.urgent.find((e) => e.task.id === 'e1').escalated, true)
+check('看历史日期不升级', projectDay(escalateTasks, {}, '2026-11-03', fixedNow).urgent.map((e) => e.task.id), ['e4'])
+
+/* ---------------- 通知只选一条 ---------------- */
+const notifyGroups = {
+  urgent: [{ task: { id: 'u1', title: '紧急A', deadline: inHours(5) }, done: false }],
+  side: [
+    { task: { id: 's1', title: '支线近', deadline: inHours(2) }, done: false },
+    { task: { id: 's2', title: '支线远', deadline: inHours(9) }, done: false },
+    { task: { id: 's3', title: '已完成', deadline: inHours(1) }, done: true },
+  ],
+  daily: [{ task: { id: 'd1', title: '日常无截止' }, done: false }],
+  main: [{ task: { id: 'm1', title: '主线', deadline: inHours(1) }, done: false }],
+}
+const nearest = nearestDeadline(notifyGroups)
+check('通知挑最近的一条', nearest?.entry.task.id, 's1')
+check('主线不进通知候选', nearest?.type, 'side')
+check('没有带截止的任务时返回 null', nearestDeadline({ urgent: [], side: [], daily: [] }), null)
 
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed === 0 ? 0 : 1)

@@ -87,11 +87,15 @@ export const DEFAULT_SETTINGS = {
   summaryTime: '22:00',
   countdownThresholds: { green: 48, yellow: 12, orange: 4, red: 1 },
   leadMinutes: 15, // 截止提前提醒的全局默认值（任务里可单独覆盖）
+  fontSize: 'normal', // small | normal | large | xlarge
+  fontWeight: 'normal', // normal | bold
+  typeColors: { urgent: '#f87171', side: '#fb923c', daily: '#4ade80', main: '#4c8dff' },
   fitnessReminders: [],
   fitnessAnchor: '', // 健身轮换基准日，首次打开健身页时写入
   fitnessOverride: null, // { date, day }：当天手动切换，跨天自动失效
   widgetColor: '#171a21', // 安卓桌面小组件背景色
   widgetOpacity: 0.95,
+  alarmSoundName: '', // 自定义提醒音乐的文件名（空 = 用系统默认闹铃）
   lockScreenEnabled: true,
   busy: false,
 }
