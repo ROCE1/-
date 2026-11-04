@@ -62,7 +62,12 @@ DSH 文件沙箱会给工作区文件打 **Low Mandatory Level** 完整性标签
 - `debug.log` 里只有 `Invalid file descriptor to ICU data received`
 - 主进程能启动但 GPU 子进程 `launch-failed`（systemErrorCode 5 = 拒绝访问）
 
-**所以：源码在工作区，运行/分发产物必须在 D 盘。** 现在桌面快捷方式指向 `D:\DSH-App\`，构建后要复制过去再测。
+**所以：源码在工作区，运行/分发产物必须在 D 盘。**
+
+> 2026-11-04 起：**本机不再安装/验证桌面端**（用户只用手机），原来的
+> `D:\桌面\工作软件\DSH App`、桌面与开始菜单快捷方式、`%APPDATA%\dsh-app`
+> 以及残留的卸载注册表项都已清理。仓库仍保留 Electron 与打包配置，
+> CI 每次发版照旧产出 exe，需要时直接下安装包即可，不用在本机跑。
 
 ## 发版流程（已跑通）
 
