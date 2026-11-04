@@ -167,11 +167,12 @@ export function nearestDeadline(groups) {
  * 今日清单（与软件内顺序一致：紧急→支线→日常→主线），给桌面小组件用。
  * 完成的任务也列出来，末尾带 ✓。
  */
-export function dayLines(groups, { limit = 12 } = {}) {
+export function dayLines(groups, { limit = 12, suffix } = {}) {
   const lines = []
   for (const type of TYPE_ORDER) {
     for (const entry of groups[type] || []) {
-      lines.push(`${TYPE_LABELS[type]} ${entry.task.title}${entry.done ? ' ✓' : ''}`)
+      const extra = typeof suffix === 'function' ? suffix(entry, type) || '' : ''
+      lines.push(`${TYPE_LABELS[type]} ${entry.task.title}${extra}${entry.done ? ' ✓' : ''}`)
       if (lines.length >= limit) return lines
     }
   }

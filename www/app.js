@@ -114,7 +114,15 @@ async function refreshNotifications() {
     progressDone: doneCount,
     progressTotal: total,
     widgetTitle: `今日任务 ${doneCount}/${total}`,
-    widgetBody: dayLines(groups).join('\n') || '今天还没有任务',
+    // 小组件也要倒计时：没完成且带截止的，后面缀上「· 剩 2小时」
+    widgetBody:
+      dayLines(groups, {
+        suffix: (entry) => {
+          if (entry.done || !entry.task.deadline) return ''
+          const info = countdown(entry.task.deadline, new Date(), state.settings?.countdownThresholds)
+          return info ? ` · ${info.label}` : ''
+        },
+      }).join('\n') || '今天还没有任务',
     widgetColor: state.settings?.widgetColor || '#171a21',
     widgetOpacity: Number.isFinite(state.settings?.widgetOpacity) ? state.settings.widgetOpacity : 0.95,
   })

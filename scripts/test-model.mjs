@@ -306,6 +306,14 @@ check('小组件清单按 紧急→支线→日常→主线', dayLines(widgetGro
   '主线 学英语',
 ])
 check('小组件清单可截断', dayLines(widgetGroups, { limit: 2 }), ['紧急 交报告', '支线 买牛奶 ✓'])
+check(
+  '小组件清单可带倒计时',
+  dayLines(
+    { urgent: [{ task: { id: 'x', title: '交报告' }, done: false }, { task: { id: 'y', title: '已做完' }, done: true }] },
+    { suffix: (entry) => (entry.done ? '' : ' · 剩 2小时') },
+  ),
+  ['紧急 交报告 · 剩 2小时', '紧急 已做完 ✓'],
+)
 check('没有任务时清单为空', dayLines({ urgent: [], side: [], daily: [], main: [] }), [])
 
 console.log(`\n${passed} passed, ${failed} failed`)
