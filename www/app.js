@@ -36,6 +36,7 @@ const state = {
   statsRange: 'week',
   cardQuery: '',
   cardTag: '',
+  expanded: new Set(),
   tasks: [],
   fitness: [],
   done: {},
@@ -78,6 +79,7 @@ async function reload() {
   state.tasks = await store.listTasks()
   state.fitness = await store.listFitnessItems()
   state.done = await store.doneMapFor(state.date)
+  state.doneIds = await store.doneTaskIds()
   state.settings = await store.loadSettings()
 }
 
@@ -100,7 +102,7 @@ function panelLine(groups) {
  */
 async function refreshNotifications() {
   if (!native.isNative()) return
-  const groups = projectDay(state.tasks, state.done, state.date)
+  const groups = projectDay(state.tasks, state.done, state.date, Date.now(), state.doneIds)
   const busy = Boolean(state.settings?.busy)
   const line = panelLine(groups)
 
@@ -295,6 +297,7 @@ function taskRow(entry, date, options = {}) {
 
   const meta = el('div', 'task-meta')
   if (task.strong) meta.appendChild(el('span', 'badge strong', '强'))
+  if (task.notes) meta.appendChild(el('span', 'badge notes-badge', '备注'))
   const chip = chipFor(task)
   if (chip) meta.appendChild(chip)
   if (meta.children.length) body.appendChild(meta)
@@ -319,11 +322,36 @@ function taskRow(entry, date, options = {}) {
     row.appendChild(arrows)
   }
 
-  row.addEventListener('click', () => openEditor(task, date))
+  // 点一下展开备注，再点收起；编辑走展开面板里的「编辑」
+  const notes = el('div', 'task-notes')
+  const notesInner = el('div', 'task-notes-inner')
+  notesInner.appendChild(el('div', `task-notes-text${task.notes ? '' : ' muted'}`, task.notes || '没有备注'))
+  const editBtn = el('button', 'link-inline', '编辑')
+  editBtn.type = 'button'
+  editBtn.addEventListener('click', (event) => {
+    event.stopPropagation()
+    openEditor(task, date)
+  })
+  const actions = el('div', 'task-notes-actions')
+  actions.appendChild(editBtn)
+  notesInner.appendChild(actions)
+  notes.appendChild(notesInner)
+
+  notes.classList.toggle('open', state.expanded.has(task.id))
+
+  row.addEventListener('click', (event) => {
+    event.stopPropagation()
+    if (state.expanded.has(task.id)) state.expanded.delete(task.id)
+    else state.expanded.add(task.id)
+    notes.classList.toggle('open', state.expanded.has(task.id))
+  })
   attachSwipe(row)
 
   wrap.append(remove, row)
-  return wrap
+
+  const block = el('div', 'task-block')
+  block.append(wrap, notes)
+  return block
 }
 
 function section(type, entries, date, rowOptions) {
@@ -340,7 +368,7 @@ function section(type, entries, date, rowOptions) {
 
 /** 手动排序：把同类型里这一条上移/下移一格，然后把整组重新编号并落库。 */
 async function moveTask(entry, delta) {
-  const groups = projectDay(state.tasks, state.done, state.date)
+  const groups = projectDay(state.tasks, state.done, state.date, Date.now(), state.doneIds)
   const ids = groups[entry.task.type].map((item) => item.task.id)
   const next = moveInList(ids, entry.task.id, delta)
   if (next.every((id, index) => id === ids[index])) return
@@ -362,7 +390,7 @@ function nextOrderFor(type) {
 }
 
 function renderToday() {
-  const groups = projectDay(state.tasks, state.done, state.date)
+  const groups = projectDay(state.tasks, state.done, state.date, Date.now(), state.doneIds)
   const view = $('#view')
   view.replaceChildren()
 
@@ -623,7 +651,7 @@ async function renderCalendar() {
   // 打点：只看“这天有没有任务”，不看完成状态
   const dotted = new Set()
   for (const key of monthDays(year, month)) {
-    if (hasAnyTask(state.tasks, {}, key)) dotted.add(key)
+    if (hasAnyTask(state.tasks, {}, key, Date.now(), state.doneIds)) dotted.add(key)
   }
 
   const grid = el('div', 'cal-grid')
@@ -647,7 +675,7 @@ async function renderCalendar() {
 
   const selected = state.calendarDate
   const done = await store.doneMapFor(selected)
-  const groups = projectDay(state.tasks, done, selected)
+  const groups = projectDay(state.tasks, done, selected, Date.now(), state.doneIds)
   const total = TASK_TYPES.reduce((sum, type) => sum + groups[type].length, 0)
 
   const dayHead = el('div', 'group-head day-head')
@@ -839,7 +867,7 @@ function summaryDue() {
 async function openSummary(date) {
   state.summaryDate = date
   const done = await store.doneMapFor(date)
-  const groups = projectDay(state.tasks, done, date)
+  const groups = projectDay(state.tasks, done, date, Date.now(), state.doneIds)
   const doneList = []
   for (const type of TASK_TYPES) {
     for (const entry of groups[type]) if (entry.done) doneList.push(entry.task.title)

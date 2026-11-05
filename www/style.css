@@ -41,6 +41,12 @@ html {
   box-sizing: border-box;
 }
 
+/* 作者样式里的 display 会盖掉浏览器默认的 [hidden]，导致“隐藏”的字段照样显示。
+   这里显式兜底：带 hidden 的元素一律不显示。 */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -1109,4 +1115,57 @@ button.ghost.danger {
   align-items: center;
   gap: 4px;
   flex: none;
+}
+
+/* ============================================================
+ * 任务备注：点一下展开，再点收起
+ * ============================================================ */
+.task-block {
+  margin-bottom: 8px;
+}
+
+.task-block .task-wrap {
+  margin-bottom: 0;
+}
+
+.task-notes {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.22s ease;
+}
+
+.task-notes.open {
+  grid-template-rows: 1fr;
+}
+
+.task-notes-inner {
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  padding: 0 12px;
+  min-height: 0;
+}
+
+.task-notes.open .task-notes-inner {
+  padding: 10px 12px;
+}
+
+.task-notes-text {
+  font-size: 0.867rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.task-notes-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.notes-badge {
+  color: var(--accent);
+  border-color: var(--accent);
 }

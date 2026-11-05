@@ -143,6 +143,14 @@ export async function doneMapFor(date) {
   return map
 }
 
+/** 任意一天完成过的任务 id（一次性任务做完就不再出现在后续日期）。 */
+export async function doneTaskIds() {
+  const all = await getAll('occurrences')
+  const ids = new Set()
+  for (const row of all) if (row.done) ids.add(row.taskId)
+  return ids
+}
+
 /* ---------- 健身项 ---------- */
 
 export async function listFitnessItems() {

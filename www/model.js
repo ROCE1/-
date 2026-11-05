@@ -103,27 +103,57 @@ export function escalatesToUrgent(task, nowMs = Date.now()) {
 }
 
 /**
+ * 一次性任务在某天是否出现。
+ *
+ * 这是 0.8.x 的一个坑：以前只看 `repeat.date`，于是“11/4 建的、11/8 截止”的任务
+ * 到了 11/5 零点就从列表里消失了。现在：
+ * - 没有截止：只在设定的那一天
+ * - 有截止：从设定那天起一直显示到截止日；截止日之后只在“今天”露面（提醒你还没做）
+ */
+export function occursOn(task, key, nowMs = Date.now()) {
+  const repeat = task?.repeat
+  if (!repeat) return false
+  if (repeat.kind !== 'once') return matchesDate(repeat, key)
+
+  if (key < repeat.date) return false
+  if (!task.deadline) return key === repeat.date
+
+  const due = new Date(task.deadline).getTime()
+  if (!Number.isFinite(due)) return key === repeat.date
+
+  const dueKey = dateKey(new Date(due))
+  if (key <= dueKey) return true
+  return key === dateKey(new Date(nowMs))
+}
+
+/**
  * 把任务投影到某一天：紧急 / 支线 / 日常 / 主线 四组，同级按截止时间升序（无截止的排后面）。
  * 健身已经拆成独立数据（见 fitness.js），这里保留 fitness 分组只是为了兼容迁移前的旧数据。
  *
  * nowMs 只在“今天”用来判断 24 小时内自动升级；看历史日期时保持原始类型。
+ * doneTaskIds：任一日期完成过的任务 id 集合 —— 一次性任务做完就不该再出现。
  */
-export function projectDay(tasks, occurrenceDone, key, nowMs = Date.now()) {
+export function projectDay(tasks, occurrenceDone, key, nowMs = Date.now(), doneTaskIds) {
   const groups = { urgent: [], side: [], daily: [], main: [], fitness: [] }
   const isToday = key === dateKey(new Date(nowMs))
 
   for (const task of tasks) {
     if (task.archivedAt) continue
-    if (!matchesDate(task.repeat, key)) continue
+
+    const occKey = `${task.id}@${key}`
+    const doneToday = Boolean(occurrenceDone?.[occKey])
+    // 一次性任务只要有任意一天完成过，就不再出现（除了完成当天留个 ✓）
+    if (task.repeat?.kind === 'once' && doneTaskIds?.has(task.id) && !doneToday) continue
+
+    if (!occursOn(task, key, nowMs)) continue
 
     let type = task.type
     if (isToday && type !== 'urgent' && escalatesToUrgent(task, nowMs)) type = 'urgent'
 
-    const occKey = `${task.id}@${key}`
     groups[type]?.push({
       task,
       occKey,
-      done: Boolean(occurrenceDone?.[occKey]),
+      done: doneToday,
       escalated: type !== task.type,
     })
   }
@@ -180,8 +210,8 @@ export function dayLines(groups, { limit = 12, suffix } = {}) {
 }
 
 /** 某天到底有没有任务（日历打点用）。 */
-export function hasAnyTask(tasks, occurrenceDone, key) {
-  const groups = projectDay(tasks, occurrenceDone, key)
+export function hasAnyTask(tasks, occurrenceDone, key, nowMs = Date.now(), doneTaskIds) {
+  const groups = projectDay(tasks, occurrenceDone, key, nowMs, doneTaskIds)
   return Object.keys(groups).some((type) => groups[type].length > 0)
 }
 

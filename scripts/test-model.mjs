@@ -13,6 +13,7 @@ import {
   escalatesToUrgent,
   nearestDeadline,
   dayLines,
+  occursOn,
   DEFAULT_THRESHOLDS,
 } from '../www/model.js'
 import { dayKind, detailOf, fitnessLine, itemsForDay, rotationFor } from '../www/fitness.js'
@@ -315,6 +316,32 @@ check(
   ['紧急 交报告 · 剩 2小时', '紧急 已做完 ✓'],
 )
 check('没有任务时清单为空', dayLines({ urgent: [], side: [], daily: [], main: [] }), [])
+
+/* ---------------- 一次性任务跨天（11/4 建、11/8 截止） ---------------- */
+const spanning = {
+  id: 'span',
+  title: '英语复习',
+  type: 'side',
+  repeat: { kind: 'once', date: '2026-11-04' },
+  deadline: '2026-11-08T04:20:00',
+}
+const nowNov5 = new Date('2026-11-05T00:07:00').getTime()
+check('跨天任务第二天还在', occursOn(spanning, '2026-11-05', nowNov5), true)
+check('跨天任务截止当天还在', occursOn(spanning, '2026-11-08', nowNov5), true)
+check('跨天任务开始之前不出现', occursOn(spanning, '2026-11-03', nowNov5), false)
+check('过期后不在别的日期出现', occursOn(spanning, '2026-11-09', nowNov5), false)
+check('过期后今天仍会露面', occursOn(spanning, '2026-11-09', new Date('2026-11-09T09:00:00').getTime()), true)
+
+const noDeadlineOnce = { id: 'once1', title: '一次性', type: 'side', repeat: { kind: 'once', date: '2026-11-04' } }
+check('没截止的一次性任务只当天', occursOn(noDeadlineOnce, '2026-11-05', nowNov5), false)
+check('没截止的一次性任务当天出现', occursOn(noDeadlineOnce, '2026-11-04', nowNov5), true)
+
+const spanGroups = projectDay([spanning], {}, '2026-11-05', nowNov5)
+check('projectDay 次日仍包含跨天任务', spanGroups.side.map((e) => e.task.id), ['span'])
+const spanDone = projectDay([spanning], { 'span@2026-11-05': true }, '2026-11-05', nowNov5)
+check('完成当天带 ✓', spanDone.side[0]?.done, true)
+const spanDoneNextDay = projectDay([spanning], {}, '2026-11-06', nowNov5, new Set(['span']))
+check('完成过的一次性任务不再出现', spanDoneNextDay.side.length, 0)
 
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed === 0 ? 0 : 1)

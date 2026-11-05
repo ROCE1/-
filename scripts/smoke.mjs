@@ -245,7 +245,8 @@ async function main() {
     // 表单精简：日常/主线收起倒计时等选项，紧急/支线才显示
     await evaluate(`document.querySelector('#add-task').click()`)
     await waitFor(() => evaluate(`document.querySelector('#task-dialog')?.open === true`), { label: '任务弹窗' })
-    const advHiddenFor = async (type) => {
+    // 注意要看计算后的 display：光有 hidden 属性、被 CSS 盖掉的话屏幕上是能看见的（0.9.0 之前就是这个 bug）
+    const visibleAdvCount = async (type) => {
       await evaluate(`
         (() => {
           const form = document.querySelector('#task-form')
@@ -253,11 +254,26 @@ async function main() {
           form.elements.type.dispatchEvent(new Event('change', { bubbles: true }))
         })()
       `)
-      return evaluate(`Array.from(document.querySelectorAll('#task-form [data-adv]')).every((n) => n.hidden)`)
+      return evaluate(
+        `Array.from(document.querySelectorAll('#task-form [data-adv]')).filter((n) => getComputedStyle(n).display !== 'none').length`,
+      )
     }
-    check('日常类型收起提醒/倒计时选项', (await advHiddenFor('daily')) === true)
-    check('主线类型收起提醒/倒计时选项', (await advHiddenFor('main')) === true)
-    check('紧急类型展开全部选项', (await advHiddenFor('urgent')) === false)
+    check('日常类型收起提醒/倒计时选项', (await visibleAdvCount('daily')) === 0)
+    check('主线类型收起提醒/倒计时选项', (await visibleAdvCount('main')) === 0)
+    check('紧急类型展开全部选项', (await visibleAdvCount('urgent')) > 0)
+
+    // 重复子选项只在对应类型下显示（截图里「仅一次」还显示星期/间隔，就是这个 bug）
+    const repeatSubCount = await evaluate(`
+      (() => {
+        const form = document.querySelector('#task-form')
+        form.elements.repeatKind.value = 'once'
+        form.elements.repeatKind.dispatchEvent(new Event('change', { bubbles: true }))
+        return Array.from(document.querySelectorAll('#task-form [data-repeat]')).filter(
+          (n) => getComputedStyle(n).display !== 'none',
+        ).length
+      })()
+    `)
+    check('重复子选项只显示当前那一个', repeatSubCount === 1, `同时显示 ${repeatSubCount} 个`)
 
     // 顺手用「日常」建一条
     await evaluate(`
@@ -273,6 +289,24 @@ async function main() {
       label: '日常任务出现在日常分区',
     })
     check('可以新建日常任务', true)
+
+    // 备注：点任务展开，再点收起
+    await evaluate(`
+      (() => {
+        const row = Array.from(document.querySelectorAll('.group-daily .task')).find((r) => r.innerText.includes('喝水'))
+        row.click()
+      })()
+    `)
+    await waitFor(() => evaluate(`!!document.querySelector('.group-daily .task-notes.open')`), { label: '备注展开' })
+    check('点任务能展开备注', true)
+    await evaluate(`
+      (() => {
+        const row = Array.from(document.querySelectorAll('.group-daily .task')).find((r) => r.innerText.includes('喝水'))
+        row.click()
+      })()
+    `)
+    await waitFor(() => evaluate(`!document.querySelector('.group-daily .task-notes.open')`), { label: '备注收起' })
+    check('再点一次能收起备注', true)
 
     // 繁忙 / 空闲切换（顺手给统计页造一条 session）
     await evaluate(`document.querySelector('#busy-toggle').click()`)
